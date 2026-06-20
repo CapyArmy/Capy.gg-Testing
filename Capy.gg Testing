@@ -5,10 +5,27 @@
     Fully optimized for standard Roblox executors.
 ]]
 
+pcall(function() print("[CAPY.GG] Loading started...") end)
+
 -- Clear any previous session elements to avoid multiple loops fighting
 if type(_G.CapyCleanUp) == "function" then
     pcall(_G.CapyCleanUp)
 end
+
+-- Track progress to find where script fails
+local capyLoaded = false
+local capyProgress = {}
+local function capyLog(step)
+    table.insert(capyProgress, step)
+    pcall(function() print("[CAPY.GG] Step: " .. tostring(step)) end)
+end
+
+capyLog("Initial load")
+
+-- Wrap entire execution in a pcall so errors don't silently kill the script
+local capyMainOk, capyMainErr = pcall(function()
+
+capyLog("Entered main wrapper")
 
 -- Simplified logger that only uses standard print to avoid opening executor consoles
 local function debugLog(msg)
@@ -16,6 +33,8 @@ local function debugLog(msg)
         pcall(function() print("[CAPY.GG] " .. tostring(msg)) end)
     end
 end
+
+capyLog("Logger defined")
 
 debugLog("Loading Universal Admin v3.0...")
 
@@ -67,6 +86,8 @@ local task = (function()
     return fb
 end)()
 
+capyLog("Defining task shim")
+
 local MAX_WAITS = 20
 local wait_count = 0
 while not game:IsLoaded() and wait_count < MAX_WAITS do
@@ -74,10 +95,14 @@ while not game:IsLoaded() and wait_count < MAX_WAITS do
     wait_count = wait_count + 1
 end
 
+capyLog("Game loaded")
+
 local function safeGetService(name)
     local ok, svc = pcall(function() return game:GetService(name) end)
     return (ok and svc) or nil
 end
+
+capyLog("Getting services")
 
 local Players = safeGetService("Players")
 local RunService = safeGetService("RunService")
@@ -86,6 +111,8 @@ local Lighting = safeGetService("Lighting")
 local TeleportService = safeGetService("TeleportService")
 local Workspace = safeGetService("Workspace")
 local TweenService = safeGetService("TweenService")
+
+capyLog("Services obtained: Players=" .. tostring(Players ~= nil) .. " UIS=" .. tostring(UserInputService ~= nil))
 
 -- Ensure we have a valid LocalPlayer before proceeding
 local LocalPlayer = Players and Players.LocalPlayer or nil
@@ -98,8 +125,11 @@ end
 
 if not Players or not LocalPlayer then
     debugLog("FATAL: Cannot load LocalPlayer.")
+    capyLog("FATAL: No LocalPlayer")
     return
 end
+
+capyLog("LocalPlayer OK: " .. tostring(LocalPlayer.Name))
 
 -- State variables
 local espMap = {}
@@ -3091,19 +3121,27 @@ pcall(function()
 end)
 
 -- Initialize UI
+capyLog("Building UI...")
 local loadedWindow = nil
 local success, err = pcall(function()
+    capyLog("Inside UI pcall...")
     local ok, win = pcall(buildUI)
+    capyLog("buildUI returned: ok=" .. tostring(ok) .. " win=" .. tostring(win ~= nil))
     if ok then loadedWindow = win end
 end)
+capyLog("UI pcall done: success=" .. tostring(success) .. " loaded=" .. tostring(loadedWindow ~= nil))
 
 if success and loadedWindow then
+    capyLog("UI build successful!")
     debugLog("UI build successful.")
     notify("Capy.gg Admin", "Universal Admin loaded! Press RightControl to hide/show.", 5)
 else
+    capyLog("UI build failed: " .. tostring(err))
     debugLog("UI build failed: " .. tostring(err))
     notify("Capy.gg Admin", "UI generation failed.", 5)
 end
+
+capyLog("Starting physics loops...")
 
 -- Physics loop connections
 connections["Stepped"] = RunService.Stepped:Connect(function()
@@ -4135,4 +4173,16 @@ spawn(function()
     end
 end)
 
+capyLog("All initialization complete")
+capyLoaded = true
 print("[CAPY.GG] Capy.gg v3.0 successfully loaded with 100+ features.")
+
+end) -- end of main pcall wrapper
+
+if not capyMainOk then
+    local errMsg = "MAIN WRAPPER FAILED: " .. tostring(capyMainErr)
+    print("[CAPY.GG] " .. errMsg)
+    pcall(function()
+        print(table.concat(capyProgress, " -> "))
+    end)
+end
