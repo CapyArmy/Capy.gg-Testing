@@ -5,27 +5,10 @@
     Fully optimized for standard Roblox executors.
 ]]
 
-pcall(function() print("[CAPY.GG] Loading started...") end)
-
 -- Clear any previous session elements to avoid multiple loops fighting
 if type(_G.CapyCleanUp) == "function" then
     pcall(_G.CapyCleanUp)
 end
-
--- Track progress to find where script fails
-local capyLoaded = false
-local capyProgress = {}
-local function capyLog(step)
-    table.insert(capyProgress, step)
-    pcall(function() print("[CAPY.GG] Step: " .. tostring(step)) end)
-end
-
-capyLog("Initial load")
-
--- Wrap entire execution in a pcall so errors don't silently kill the script
-local capyMainOk, capyMainErr = pcall(function()
-
-capyLog("Entered main wrapper")
 
 -- Simplified logger that only uses standard print to avoid opening executor consoles
 local function debugLog(msg)
@@ -33,8 +16,6 @@ local function debugLog(msg)
         pcall(function() print("[CAPY.GG] " .. tostring(msg)) end)
     end
 end
-
-capyLog("Logger defined")
 
 debugLog("Loading Universal Admin v3.0...")
 
@@ -86,8 +67,6 @@ local task = (function()
     return fb
 end)()
 
-capyLog("Defining task shim")
-
 local MAX_WAITS = 20
 local wait_count = 0
 while not game:IsLoaded() and wait_count < MAX_WAITS do
@@ -95,14 +74,10 @@ while not game:IsLoaded() and wait_count < MAX_WAITS do
     wait_count = wait_count + 1
 end
 
-capyLog("Game loaded")
-
 local function safeGetService(name)
     local ok, svc = pcall(function() return game:GetService(name) end)
     return (ok and svc) or nil
 end
-
-capyLog("Getting services")
 
 local Players = safeGetService("Players")
 local RunService = safeGetService("RunService")
@@ -111,8 +86,6 @@ local Lighting = safeGetService("Lighting")
 local TeleportService = safeGetService("TeleportService")
 local Workspace = safeGetService("Workspace")
 local TweenService = safeGetService("TweenService")
-
-capyLog("Services obtained: Players=" .. tostring(Players ~= nil) .. " UIS=" .. tostring(UserInputService ~= nil))
 
 -- Ensure we have a valid LocalPlayer before proceeding
 local LocalPlayer = Players and Players.LocalPlayer or nil
@@ -125,11 +98,8 @@ end
 
 if not Players or not LocalPlayer then
     debugLog("FATAL: Cannot load LocalPlayer.")
-    capyLog("FATAL: No LocalPlayer")
     return
 end
-
-capyLog("LocalPlayer OK: " .. tostring(LocalPlayer.Name))
 
 -- State variables
 local espMap = {}
@@ -197,7 +167,7 @@ local C = {
 local clamp = function(v, min, max) return math.max(min, math.min(v, max)) end
 local triggerbotEnabled = false
 local bhopEnabled = false
-local godModeEnabled = false
+local noFallDmgEnabled = false
 local waterWalkEnabled = false
 local tpCursorEnabled = false
 local antiVoidEnabled = false
@@ -211,7 +181,6 @@ local speedometerEnabled = false
 local fpsMonitorEnabled = false
 local playerTrackerEnabled = false
 local trackPlayerName = ""
-local infiniteZoomEnabled = false
 local autoCollectEnabled = false
 local autoFarmEnabled = false
 local silentAimEnabled = false
@@ -222,254 +191,48 @@ local aimHitPart = "Head"
 local crosshairSize = 12
 local crosshairColor = C.accent
 local beaconRadius = 30
+local aimPrediction = 0.1
+local teamCheckEnabled = false
+local espTeamCheck = false
+local espColor = Color3.fromRGB(255, 50, 50)
+local boxColor = C.accent
+local tracerColor = C.accent
+local watermarkEnabled = false
+
+-- Trolling features
+local bringAllEnabled = false
+local loopBringEnabled = false
+local jailEnabled = false
+local noGravityEnabled = false
+local autoHealEnabled = false
+local autoParryEnabled = false
+local autoBlockEnabled = false
+local executeLineText = ""
 
 -- Fling features
 local flingEnabled = false
 local walkflingEnabled = false
 local flyflingEnabled = false
 local antiflingEnabled = false
-local flingAllEnabled = false
-local flingAllBodies = {}
-local grabPlayerEnabled = false
-local grabbedPlayer = nil
-local grabBodyPos = nil
-local grabCon = nil
-local bringAllCooldown = 0
 local flingBodyAV = nil
 
 local originalLighting = {}
 local originalFog = {}
-local minimizeKey = Enum.KeyCode.RightControl
+local minimizeKey = Enum.KeyCode.RightShift
 local lastSpawnTime = 0
 local now = type(tick) == "function" and tick or os.clock
 
 local menuOpen = true
-local sliderDragging = false
-local sliderUpdateFunc = nil
 
 local DISCORD_INVITE = "https://discord.gg/XgTmqNRP4K"
-local saveEnabled = false
-local SAVE_FILE = "capygg_settings.json"
-
--- Settings persistence system
-local settingsMap = {
-    noclipEnabled = {g = function() return noclipEnabled end, s = function(v) noclipEnabled = v end},
-    flyEnabled = {g = function() return flyEnabled end, s = function(v) flyEnabled = v end},
-    espEnabled = {g = function() return espEnabled end, s = function(v) espEnabled = v end},
-    boxEspEnabled = {g = function() return boxEspEnabled end, s = function(v) boxEspEnabled = v end},
-    tracerEspEnabled = {g = function() return tracerEspEnabled end, s = function(v) tracerEspEnabled = v end},
-    chamsEnabled = {g = function() return chamsEnabled end, s = function(v) chamsEnabled = v end},
-    rainbowChamsEnabled = {g = function() return rainbowChamsEnabled end, s = function(v) rainbowChamsEnabled = v end},
-    crosshairEnabled = {g = function() return crosshairEnabled end, s = function(v) crosshairEnabled = v end},
-    noFogEnabled = {g = function() return noFogEnabled end, s = function(v) noFogEnabled = v end},
-    antiBlindEnabled = {g = function() return antiBlindEnabled end, s = function(v) antiBlindEnabled = v end},
-    walkspeedEnabled = {g = function() return walkspeedEnabled end, s = function(v) walkspeedEnabled = v end},
-    jumppowerEnabled = {g = function() return jumppowerEnabled end, s = function(v) jumppowerEnabled = v end},
-    clickTpEnabled = {g = function() return clickTpEnabled end, s = function(v) clickTpEnabled = v end},
-    clickDestroyEnabled = {g = function() return clickDestroyEnabled end, s = function(v) clickDestroyEnabled = v end},
-    aimbotEnabled = {g = function() return aimbotEnabled end, s = function(v) aimbotEnabled = v end},
-    hitboxesExpanded = {g = function() return hitboxesExpanded end, s = function(v) hitboxesExpanded = v end},
-    spinbotEnabled = {g = function() return spinbotEnabled end, s = function(v) spinbotEnabled = v end},
-    spinSpeed = {g = function() return spinSpeed end, s = function(v) spinSpeed = v end},
-    carSpeedEnabled = {g = function() return carSpeedEnabled end, s = function(v) carSpeedEnabled = v end},
-    carSpeedValue = {g = function() return carSpeedValue end, s = function(v) carSpeedValue = v end},
-    antiSitEnabled = {g = function() return antiSitEnabled end, s = function(v) antiSitEnabled = v end},
-    antiAfkEnabled = {g = function() return antiAfkEnabled end, s = function(v) antiAfkEnabled = v end},
-    spammerEnabled = {g = function() return spammerEnabled end, s = function(v) spammerEnabled = v end},
-    spammerDelay = {g = function() return spammerDelay end, s = function(v) spammerDelay = v end},
-    autoClickerEnabled = {g = function() return autoClickerEnabled end, s = function(v) autoClickerEnabled = v end},
-    autoKeyEnabled = {g = function() return autoKeyEnabled end, s = function(v) autoKeyEnabled = v end},
-    antiRagdollEnabled = {g = function() return antiRagdollEnabled end, s = function(v) antiRagdollEnabled = v end},
-    antiFreezeEnabled = {g = function() return antiFreezeEnabled end, s = function(v) antiFreezeEnabled = v end},
-    localInvisible = {g = function() return localInvisible end, s = function(v) localInvisible = v end},
-    headlessEnabled = {g = function() return headlessEnabled end, s = function(v) headlessEnabled = v end},
-    noLimbsEnabled = {g = function() return noLimbsEnabled end, s = function(v) noLimbsEnabled = v end},
-    triggerbotEnabled = {g = function() return triggerbotEnabled end, s = function(v) triggerbotEnabled = v end},
-    bhopEnabled = {g = function() return bhopEnabled end, s = function(v) bhopEnabled = v end},
-    godModeEnabled = {g = function() return godModeEnabled end, s = function(v) godModeEnabled = v end},
-    waterWalkEnabled = {g = function() return waterWalkEnabled end, s = function(v) waterWalkEnabled = v end},
-    tpCursorEnabled = {g = function() return tpCursorEnabled end, s = function(v) tpCursorEnabled = v end},
-    antiVoidEnabled = {g = function() return antiVoidEnabled end, s = function(v) antiVoidEnabled = v end},
-    wallTransEnabled = {g = function() return wallTransEnabled end, s = function(v) wallTransEnabled = v end},
-    objectEspEnabled = {g = function() return objectEspEnabled end, s = function(v) objectEspEnabled = v end},
-    glowTargetEnabled = {g = function() return glowTargetEnabled end, s = function(v) glowTargetEnabled = v end},
-    offscreenArrowsEnabled = {g = function() return offscreenArrowsEnabled end, s = function(v) offscreenArrowsEnabled = v end},
-    playerListEnabled = {g = function() return playerListEnabled end, s = function(v) playerListEnabled = v end},
-    speedometerEnabled = {g = function() return speedometerEnabled end, s = function(v) speedometerEnabled = v end},
-    fpsMonitorEnabled = {g = function() return fpsMonitorEnabled end, s = function(v) fpsMonitorEnabled = v end},
-    playerTrackerEnabled = {g = function() return playerTrackerEnabled end, s = function(v) playerTrackerEnabled = v end},
-    autoCollectEnabled = {g = function() return autoCollectEnabled end, s = function(v) autoCollectEnabled = v end},
-    autoFarmEnabled = {g = function() return autoFarmEnabled end, s = function(v) autoFarmEnabled = v end},
-    silentAimEnabled = {g = function() return silentAimEnabled end, s = function(v) silentAimEnabled = v end},
-    noRecoilEnabled = {g = function() return noRecoilEnabled end, s = function(v) noRecoilEnabled = v end},
-    noSpreadEnabled = {g = function() return noSpreadEnabled end, s = function(v) noSpreadEnabled = v end},
-    autoWeaponEnabled = {g = function() return autoWeaponEnabled end, s = function(v) autoWeaponEnabled = v end},
-    flingEnabled = {g = function() return flingEnabled end, s = function(v) flingEnabled = v end},
-    walkflingEnabled = {g = function() return walkflingEnabled end, s = function(v) walkflingEnabled = v end},
-    flyflingEnabled = {g = function() return flyflingEnabled end, s = function(v) flyflingEnabled = v end},
-    antiflingEnabled = {g = function() return antiflingEnabled end, s = function(v) antiflingEnabled = v end},
-    flingAllEnabled = {g = function() return flingAllEnabled end, s = function(v) flingAllEnabled = v end},
-    grabPlayerEnabled = {g = function() return grabPlayerEnabled end, s = function(v) grabPlayerEnabled = v end},
-    loopBringAllEnabled = {g = function() return loopBringAllEnabled end, s = function(v) loopBringAllEnabled = v end},
-    infiniteZoomEnabled = {g = function() return infiniteZoomEnabled end, s = function(v) infiniteZoomEnabled = v end},
-}
-
-local function saveSettings()
-    local http = game:GetService("HttpService")
-    local data = {}
-    for k, v in pairs(settingsMap) do
-        data[k] = v.g()
-    end
-    local json = http:JSONEncode(data)
-    local ok, func = pcall(function() return type(writefile) end)
-    if ok and func == "function" then
-        pcall(writefile, SAVE_FILE, json)
-    end
-end
-
-local function loadSettings()
-    local ok, func = pcall(function() return type(readfile) end)
-    if not (ok and func == "function") then return end
-    local ok, data = pcall(readfile, SAVE_FILE)
-    if not (ok and data and #data > 0) then return end
-    local http = game:GetService("HttpService")
-    local ok, decoded = pcall(function() return http:JSONDecode(data) end)
-    if not ok or type(decoded) ~= "table" then return end
-    for k, v in pairs(decoded) do
-        if settingsMap[k] and settingsMap[k].s then
-            settingsMap[k].s(v)
-        end
-    end
-end
 
 -- Utility Helper Functions
 local function getCharacter(p) return p and p.Character end
 local function getHumanoid(p) return getCharacter(p) and getCharacter(p):FindFirstChildOfClass("Humanoid") end
 local function getRootPart(p) return getCharacter(p) and getCharacter(p):FindFirstChild("HumanoidRootPart") end
 
-local function applyNoclip()
-    local char = LocalPlayer and LocalPlayer.Character
-    if not char then return end
-    for _, v in pairs(char:GetChildren()) do
-        if v:IsA("BasePart") then
-            v.CanCollide = false
-        end
-    end
-end
-
-local function restoreNoclip()
-    local char = LocalPlayer and LocalPlayer.Character
-    if not char then return end
-    for _, v in pairs(char:GetChildren()) do
-        if v:IsA("BasePart") then
-            v.CanCollide = true
-        end
-    end
-end
-
 local function setNoclip(v)
     noclipEnabled = v
-    if v then
-        applyNoclip()
-    else
-        restoreNoclip()
-    end
- end
-
-local godModeCon = nil
-local godModeDiedCon = nil
-local function applyGodMode()
-    local char = LocalPlayer and LocalPlayer.Character
-    if not char then return end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if not hum then return end
-    
-    -- Health refill (always works)
-    pcall(function() hum.Health = hum.MaxHealth end)
-    pcall(function() hum.BreakJointsOnDeath = false end)
-    
-    -- Disable Dead state (may error on some executors, isolated)
-    pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false) end)
-    
-    -- HealthChanged connection (one-time setup)
-    if not godModeCon then
-        pcall(function()
-            godModeCon = hum.HealthChanged:Connect(function(hp)
-                if godModeEnabled and hum and hp < 1 then
-                    pcall(function() hum.Health = hum.MaxHealth end)
-                end
-            end)
-        end)
-    end
-    
-    -- Died connection (one-time setup)
-    if not godModeDiedCon then
-        pcall(function()
-            godModeDiedCon = hum.Died:Connect(function()
-                if godModeEnabled and LocalPlayer.Character == char then
-                    task.wait(0.5)
-                    pcall(function()
-                        char:BreakJoints()
-                        task.wait(1)
-                        local nh = char:FindFirstChildOfClass("Humanoid")
-                        if nh then nh.Health = nh.MaxHealth end
-                    end)
-                end
-            end)
-        end)
-    end
-    
-    -- ForceField (re-created every tick to beat anti-forcefield scripts)
-    pcall(function()
-        local old = char:FindFirstChild("CapyGodForce")
-        if old then old:Destroy() end
-        local ff = Instance.new("ForceField")
-        ff.Name = "CapyGodForce"
-        ff.Visible = false
-        ff.Parent = char
-    end)
-    
-    -- Block damage remotes
-    pcall(function()
-        for _, v in pairs(char:GetDescendants()) do
-            if v:IsA("RemoteEvent") or v:IsA("RemoteFunction") then
-                local name = v.Name:lower()
-                if name:find("damage") or name:find("hit") or name:find("take") or name:find("bullet") or name:find("melee") or name:find("attack") or name:find("hurt") or name:find("kill") then
-                    pcall(function() v:FireServer(0) end)
-                end
-            end
-        end
-    end)
-end
-
-local function restoreGodMode()
-    pcall(function()
-        local char = LocalPlayer and LocalPlayer.Character
-        if char then
-            pcall(function()
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                if hum then
-                    hum.BreakJointsOnDeath = true
-                    pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Dead, true) end)
-                end
-            end)
-            pcall(function()
-                local ff = char:FindFirstChild("CapyGodForce")
-                if ff then ff:Destroy() end
-            end)
-        end
-        if godModeCon then pcall(function() godModeCon:Disconnect() end); godModeCon = nil end
-        if godModeDiedCon then pcall(function() godModeDiedCon:Disconnect() end); godModeDiedCon = nil end
-    end)
-end
-
-local function setGodMode(v)
-    godModeEnabled = v
-    if v then
-        applyGodMode()
-    else
-        restoreGodMode()
-    end
 end
 
 local function safeHttpGet(url)
@@ -526,7 +289,23 @@ local function getGuiParent()
         end)
         if test then return coreGui end
     end
-    return LocalPlayer:FindFirstChild("PlayerGui")
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if pg then return pg end
+    -- Fallback: BillboardGui on character
+    return nil
+end
+
+local function getBillboardParent()
+    local c = LocalPlayer.Character
+    if not c then
+        pcall(function() LocalPlayer.CharacterAdded:Wait(5) end)
+        c = LocalPlayer.Character
+    end
+    if c then
+        local root = c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Torso")
+        if root then return root end
+    end
+    return nil
 end
 
 local overlayGui = nil
@@ -694,6 +473,7 @@ end
 -- Visual ESP systems
 local function attachEspToPlayer(p)
     if not p or p == LocalPlayer or not espEnabled then return end
+    if espTeamCheck and LocalPlayer.Team and p.Team and LocalPlayer.Team == p.Team then return end
     local char = p.Character
     local head = char and char:WaitForChild("Head", 5)
     if not head then return end
@@ -773,6 +553,7 @@ end
 -- Bounding Box 3D ESP
 local function attachBoxToPlayer(p)
     if not p or p == LocalPlayer or not boxEspEnabled then return end
+    if espTeamCheck and LocalPlayer.Team and p.Team and LocalPlayer.Team == p.Team then return end
     local char = p.Character
     if not char then return end
     
@@ -814,6 +595,7 @@ end
 -- Tracers (Laser Beams) ESP
 local function attachTracerToPlayer(p)
     if not p or p == LocalPlayer or not tracerEspEnabled then return end
+    if espTeamCheck and LocalPlayer.Team and p.Team and LocalPlayer.Team == p.Team then return end
     local char = p.Character
     local root = char and char:WaitForChild("HumanoidRootPart", 5)
     local localRoot = getRootPart(LocalPlayer)
@@ -994,15 +776,6 @@ local function cleanupVisuals()
     end)
 end
 
-local function setServerOwnership(char)
-    if not char then return end
-    for _, v in pairs(char:GetDescendants()) do
-        if v:IsA("BasePart") then
-            pcall(function() v:SetNetworkOwner(nil) end)
-        end
-    end
-end
-
 -- Custom IY-like Flight System (Anchors and uses stabilize Gyro/Velocity)
 local function enableFly(e)
     if not LocalPlayer then return end
@@ -1013,10 +786,6 @@ local function enableFly(e)
     if flyGyro then pcall(function() flyGyro:Destroy() end); flyGyro = nil end
     if flyVelocity then pcall(function() flyVelocity:Destroy() end); flyVelocity = nil end
     if hum then hum.PlatformStand = e end
-    
-    if e then
-        pcall(function() setServerOwnership(getCharacter(LocalPlayer)) end)
-    end
     
     if not e or not r then return end
     
@@ -1115,32 +884,37 @@ local function toggleObjectEsp(e)
     end
 end
 
--- Aimbot Target Resolver (Screen-distance based)
+-- Aimbot Target Resolver (crosshair raycast)
 local function getAimbotTarget()
-    local closest, dist = nil, math.huge
-    local r = getRootPart(LocalPlayer)
-    local camera = Workspace.CurrentCamera
-    if not r or not camera then return nil end
-    
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character then
-            local part = aimHitPart == "Random" and p.Character:FindFirstChildWhichIsA("BasePart") or p.Character:FindFirstChild(aimHitPart)
-            if not part then part = p.Character:FindFirstChild("Head") or p.Character:FindFirstChildWhichIsA("BasePart") end
-            local hum = getHumanoid(p)
-            if part and hum and hum.Health > 0 then
-                local pos, onScreen = camera:WorldToViewportPoint(part.Position)
-                if onScreen then
-                    local mousePos = getMouseLocation()
-                    local screenDist = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
-                    if screenDist < dist then
-                        dist = screenDist
-                        closest = p
+    local camera = Workspace and Workspace.CurrentCamera
+    if not camera then return nil end
+    local ray = camera:ViewportPointToRay(camera.ViewportSize.X/2, camera.ViewportSize.Y/2)
+    local hit
+    local ok = pcall(function()
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Blacklist
+        params.FilterDescendantsInstances = {LocalPlayer.Character}
+        local result = Workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
+        if result then hit = result.Instance end
+    end)
+    if not ok then
+        hit = Workspace:FindPartOnRay(Ray.new(ray.Origin, ray.Direction * 1000), LocalPlayer.Character)
+    end
+    if hit and hit.Parent then
+        local hitParent = hit.Parent:FindFirstChildOfClass("Humanoid") and hit.Parent or (hit.Parent.Parent and hit.Parent.Parent:FindFirstChildOfClass("Humanoid") and hit.Parent.Parent)
+        if hitParent and hitParent ~= LocalPlayer.Character then
+            local hum = hitParent:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 then
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p ~= LocalPlayer and p.Character == hitParent then
+                        if teamCheckEnabled and LocalPlayer.Team and p.Team and LocalPlayer.Team == p.Team then return nil end
+                        return p
                     end
                 end
             end
         end
     end
-    return closest
+    return nil
 end
 
 -- Combat Commands
@@ -1151,17 +925,6 @@ local function killAllHumanoids()
     for _, o in ipairs(Workspace:GetDescendants()) do
         if o:IsA("Humanoid") and o.Parent ~= char then
             pcall(function() o.Health = 0 end)
-            local targetChar = o.Parent
-            if targetChar then
-                for _, d in ipairs(targetChar:GetDescendants()) do
-                    if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") then
-                        local name = d.Name:lower()
-                        if name:find("damage") or name:find("hit") or name:find("take") or name:find("bullet") or name:find("melee") or name:find("attack") then
-                            pcall(function() d:FireServer(9e9, targetChar:GetPivot().Position) end)
-                        end
-                    end
-                end
-            end
             count = count + 1
         end
     end
@@ -1174,17 +937,6 @@ local function killTarget()
     local h = m.Target and m.Target.Parent and m.Target.Parent:FindFirstChildOfClass("Humanoid")
     if h and h.Health > 0 and m.Target.Parent ~= LocalPlayer.Character then
         pcall(function() h.Health = 0 end)
-        local tc = m.Target.Parent
-        if tc then
-            for _, d in ipairs(tc:GetDescendants()) do
-                if d:IsA("RemoteEvent") or d:IsA("RemoteFunction") then
-                    local name = d.Name:lower()
-                    if name:find("damage") or name:find("hit") or name:find("take") or name:find("bullet") or name:find("melee") or name:find("attack") then
-                        pcall(function() d:FireServer(9e9, tc:GetPivot().Position) end)
-                    end
-                end
-            end
-        end
         notify("Trolling", "Target " .. tostring(m.Target.Parent.Name) .. " eliminated.", 2)
     else
         notify("Trolling", "Hover cursor over a target to kill.", 3)
@@ -1245,254 +997,28 @@ local function teleportToSpawn()
     end
 end
 
-local function getPlayerFromPart(part)
-    if not part then return nil end
-    local p = part:FindFirstAncestorOfClass("Model")
-    if p and Players:GetPlayerFromCharacter(p) then
-        return Players:GetPlayerFromCharacter(p)
-    end
-    return nil
-end
-
-local function bringAllPlayers()
-    local root = getRootPart(LocalPlayer)
-    if not root then notify("Trolling", "No character found.", 2); return end
-    local nowTime = now()
-    if nowTime - bringAllCooldown < 3 then notify("Trolling", "Bring on cooldown (3s).", 2); return end
-    bringAllCooldown = nowTime
-    local count = 0
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then
-            pcall(function()
-                local pr = getRootPart(p)
-                if pr then
-                    pr.CFrame = root.CFrame + Vector3.new(math.random(-8, 8), 3, math.random(-8, 8))
-                    count = count + 1
-                end
-            end)
-        end
-    end
-    notify("Trolling", "Brought " .. tostring(count) .. " player(s) to you.", 2)
-end
-
-local function sendAllAway()
-    if not Workspace then return end
-    local nowTime = now()
-    if nowTime - bringAllCooldown < 3 then notify("Trolling", "Send on cooldown (3s).", 2); return end
-    bringAllCooldown = nowTime
-    local count = 0
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then
-            pcall(function()
-                local pr = getRootPart(p)
-                if pr then
-                    pr.CFrame = CFrame.new(math.random(-5000, 5000), 500, math.random(-5000, 5000))
-                    count = count + 1
-                end
-            end)
-        end
-    end
-    notify("Trolling", "Sent " .. tostring(count) .. " player(s) away.", 2)
-end
-
-local function flingPlayerSingle(p)
-    pcall(function()
-        local char = getCharacter(p)
-        local root = getRootPart(p)
-        local hum = getHumanoid(p)
-        if not (char and root and hum) then return end
-        hum.PlatformStand = true
-        for _, v in pairs(char:GetDescendants()) do
-            if v:IsA("BasePart") then
-                v.CanCollide = false
-                v.Massless = true
-            end
-        end
-        root.Velocity = Vector3.new(math.random(-6000, 6000), math.random(4000, 10000), math.random(-6000, 6000))
-        local bv = Instance.new("BodyVelocity")
-        bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-        bv.Velocity = Vector3.new(math.random(-800, 800), math.random(800, 3000), math.random(-800, 800))
-        bv.Parent = root
-        flingAllBodies[p] = bv
-    end)
-end
-
-local function applyFlingAll()
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and not flingAllBodies[p] then
-            flingPlayerSingle(p)
-        end
-    end
-end
-
-local function cleanupFlingAll()
-    for p, bv in pairs(flingAllBodies) do
-        pcall(function()
-            if bv and bv.Parent then bv:Destroy() end
-            local hum = getHumanoid(p)
-            if hum then hum.PlatformStand = false end
-        end)
-    end
-    flingAllBodies = {}
-end
-
-local function toggleFlingAll(v)
-    flingAllEnabled = v
-    if v then
-        applyFlingAll()
-        notify("Trolling", "Fling All Players ON", 2)
-    else
-        cleanupFlingAll()
-        notify("Trolling", "Fling All Players OFF", 2)
-    end
-end
-
-local function releaseGrabbedPlayer()
-    if grabbedPlayer then
-        pcall(function()
-            local root = getRootPart(grabbedPlayer)
-            if root then
-                if grabBodyPos and grabBodyPos.Parent then grabBodyPos:Destroy() end
-            end
-            local hum = getHumanoid(grabbedPlayer)
-            if hum then hum.PlatformStand = false end
-        end)
-        grabbedPlayer = nil
-    end
-    grabBodyPos = nil
-    if grabCon then grabCon:Disconnect(); grabCon = nil end
-end
-
-local function toggleGrabPlayer(v)
-    grabPlayerEnabled = v
-    if not v then
-        releaseGrabbedPlayer()
-        notify("Trolling", "Grab Player OFF", 2)
-    else
-        notify("Trolling", "Click on a player to grab them!", 2)
-    end
-end
-
--- Trolling functions
-local loopBringAllEnabled = false
-
-local function sitAllPlayers()
-    local count = 0
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then
-            pcall(function()
-                local hum = getHumanoid(p)
-                if hum then hum.Sit = true; count = count + 1 end
-            end)
-        end
-    end
-    notify("Trolling", "Sat " .. tostring(count) .. " player(s).", 2)
-end
-
-local function freezeAllPlayers()
-    local count = 0
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then
-            pcall(function()
-                local root = getRootPart(p)
-                if root then root.Anchored = true; count = count + 1 end
-            end)
-        end
-    end
-    notify("Trolling", "Froze " .. tostring(count) .. " player(s).", 2)
-end
-
-local function unfreezeAllPlayers()
-    local count = 0
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then
-            pcall(function()
-                local root = getRootPart(p)
-                if root then root.Anchored = false; count = count + 1 end
-            end)
-        end
-    end
-    notify("Trolling", "Unfroze " .. tostring(count) .. " player(s).", 2)
-end
-
-local function explodeAllPlayers()
-    local count = 0
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then
-            pcall(function()
-                local root = getRootPart(p)
-                if root then
-                    local ex = Instance.new("Explosion")
-                    ex.Position = root.Position
-                    ex.BlastRadius = 16
-                    ex.BlastPressure = 9e9
-                    ex.DestroyJointRadiusPercent = 1
-                    ex.Parent = Workspace
-                    count = count + 1
-                end
-            end)
-        end
-    end
-    notify("Trolling", "Exploded " .. tostring(count) .. " player(s).", 2)
-end
-
-local function noclipAllPlayers()
-    local count = 0
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then
-            pcall(function()
-                local char = getCharacter(p)
-                if char then
-                    for _, v in pairs(char:GetChildren()) do
-                        if v:IsA("BasePart") then
-                            v.CanCollide = false
-                            count = count + 1
-                        end
-                    end
-                end
-            end)
-        end
-    end
-    notify("Trolling", "Noclipped " .. tostring(count) .. " parts.", 2)
-end
-
-local function removeAllLimbs()
-    local count = 0
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then
-            pcall(function()
-                local char = getCharacter(p)
-                if char then
-                    for _, v in pairs(char:GetChildren()) do
-                        if v:IsA("BasePart") and v.Name ~= "HumanoidRootPart" and v.Name ~= "Head" and v.Name ~= "Torso" and v.Name ~= "UpperTorso" and v.Name ~= "LowerTorso" then
-                            v:Destroy()
-                            count = count + 1
-                        end
-                    end
-                end
-            end)
-        end
-    end
-    notify("Trolling", "Removed " .. tostring(count) .. " limb(s).", 2)
-end
-
-local function toggleLoopBringAll(v)
-    loopBringAllEnabled = v
-    notify("Trolling", "Loop Bring All " .. (v and "ON" or "OFF"), 2)
-end
-
 -- Utility Commands
 local function antiAfk(e)
     antiAfkEnabled = e
     if e then
         if not LocalPlayer then return end
-        connections["AntiAfk"] = LocalPlayer.Idled:Connect(function()
-            local vu = game:GetService("VirtualUser")
-            vu:Button2Down(Vector2.new(0,0))
-            task.wait(1)
-            vu:Button2Up(Vector2.new(0,0))
-            notify("Anti-AFK", "Prevented disconnection (AFK).", 2)
-        end)
+        if LocalPlayer.Idled then
+            connections["AntiAfk"] = LocalPlayer.Idled:Connect(function()
+                local vu = game:GetService("VirtualUser")
+                vu:Button2Down(Vector2.new(0,0))
+                task.wait(1)
+                vu:Button2Up(Vector2.new(0,0))
+                notify("Anti-AFK", "Prevented disconnection (AFK).", 2)
+            end)
+        else
+            pcall(function()
+                local vu = game:GetService("VirtualUser")
+                connections["AntiAfk"] = RunService.Heartbeat:Connect(function()
+                    vu:Button2Down(Vector2.new(0,0))
+                    vu:Button2Up(Vector2.new(0,0))
+                end)
+            end)
+        end
         notify("Anti-AFK", "Enabled", 2)
     else
         if connections["AntiAfk"] then connections["AntiAfk"]:Disconnect(); connections["AntiAfk"] = nil end
@@ -1632,7 +1158,7 @@ local function copyJobId()
 end
 
 local function boostFps()
-    pcall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level01 end)
+    settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
     pcall(function()
         for _, v in ipairs(Workspace:GetDescendants()) do
             if v:IsA("BasePart") then
@@ -1642,17 +1168,12 @@ local function boostFps()
                 v:Destroy()
             elseif v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("Beam") then
                 v.Enabled = false
-            elseif v:IsA("ProximityPrompt") then
-                v.Enabled = false
             end
         end
     end)
     pcall(function()
         if Lighting then
             Lighting.GlobalShadows = false
-            Lighting.FogEnd = 0
-            Lighting.Brightness = 2
-            Lighting.Technology = Enum.Technology.Compat
             for _, v in ipairs(Lighting:GetChildren()) do
                 if v:IsA("PostEffect") or v:IsA("Atmosphere") or v:IsA("Sky") then
                     v:Destroy()
@@ -1660,46 +1181,20 @@ local function boostFps()
             end
         end
     end)
-    pcall(function()
-        Workspace.StreamingEnabled = false
-        Workspace.ViewDistanceFactor = 0.5
-    end)
-    pcall(function()
-        for _, p in ipairs(Players:GetPlayers()) do
-            local h = getHumanoid(p)
-            if h then
-                h.AutoRotate = false
-                h.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-            end
-        end
-    end)
     notify("Utility", "FPS Boost activated!", 3)
 end
 
 local function boostFPSHeavy()
-    boostFps()
     pcall(function()
         for _, v in ipairs(Workspace:GetDescendants()) do
             if v:IsA("ParticleEmitter") or v:IsA("Sparkles") or v:IsA("Smoke") or v:IsA("Fire") then
                 v:Destroy()
-            elseif v:IsA("Sound") or v:IsA("AudioEmitter") then
-                v:Destroy()
-            elseif v:IsA("Decal") or v:IsA("Texture") then
-                v:Destroy()
-            elseif v:IsA("SurfaceAppearance") then
-                v:Destroy()
+            elseif v:IsA("Sound") then
+                v:Stop()
             end
         end
     end)
-    pcall(function()
-        if Lighting then
-            Lighting.ColorShift_Bottom = Color3.new(0, 0, 0)
-            Lighting.ColorShift_Top = Color3.new(0, 0, 0)
-            Lighting.EnvironmentDiffuseScale = 0
-            Lighting.EnvironmentSpecularScale = 0
-        end
-    end)
-    notify("FPS Booster", "Heavy FPS Boost activated!", 3)
+    notify("FPS Booster", "Particles and sounds removed.", 3)
 end
 
 local function destroySeats()
@@ -1783,15 +1278,31 @@ end
 
 -- Build the UI
 local function buildUI()
-    local parent = getGuiParent()
-    if not parent then return nil end
+    local screenParent = getGuiParent()
+    local billboardAttach = nil
+    local isBillboard = false
     
-    local sg = Instance.new("ScreenGui")
+    if not screenParent then
+        billboardAttach = getBillboardParent()
+        if not billboardAttach then return nil end
+        isBillboard = true
+    end
+    
+    local sg
+    if isBillboard then
+        sg = Instance.new("BillboardGui")
+        sg.Size = UDim2.new(0, 560, 0, 420)
+        sg.StudsOffset = Vector3.new(0, 4, 0)
+        sg.AlwaysOnTop = true
+        sg.Parent = billboardAttach
+    else
+        sg = Instance.new("ScreenGui")
+        sg.Parent = screenParent
+    end
     sg.Name = "CapyggUI"
     sg.ResetOnSpawn = false
-    sg.IgnoreGuiInset = true
-    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    sg.Parent = parent
+    pcall(function() sg.IgnoreGuiInset = true end)
+    pcall(function() sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling end)
     
     -- Main Window
     local win = Instance.new("Frame")
@@ -1799,7 +1310,7 @@ local function buildUI()
     win.Size = UDim2.new(0, 560, 0, 380)
     win.Position = UDim2.new(0.5, -280, 0.5, -190)
     win.BackgroundColor3 = C.bg
-    win.BackgroundTransparency = 0.12
+    win.BackgroundTransparency = 0.08
     win.BorderSizePixel = 0
     win.Active = true
     win.ClipsDescendants = true
@@ -1816,7 +1327,7 @@ local function buildUI()
     sidebar.Name = "Sidebar"
     sidebar.Size = UDim2.new(0, 140, 1, 0)
     sidebar.BackgroundColor3 = C.sidebar
-    sidebar.BackgroundTransparency = 0.12
+    sidebar.BackgroundTransparency = 0.08
     sidebar.BorderSizePixel = 0
     sidebar.Parent = win
     
@@ -1919,7 +1430,7 @@ local function buildUI()
         end
     end
     
-    local tabs = {"Main", "Movement", "Trolling", "Aim", "Visuals", "Utility", "Settings"}
+    local tabs = {"Main", "Movement", "Aim", "Trolling", "Visuals", "Utility", "Settings"}
     
     for i, tn in ipairs(tabs) do
         -- Button
@@ -2072,7 +1583,6 @@ local function buildUI()
             TweenService:Create(dot, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = targetPos}):Play()
             
             pcall(cb, state)
-            if saveEnabled then saveSettings() end
         end)
     end
     
@@ -2226,101 +1736,6 @@ local function buildUI()
         end)
     end
     
-    local function addSlider(tab, txt, defaultVal, minVal, maxVal, cb)
-        local f = Instance.new("Frame")
-        f.Size = UDim2.new(1, 0, 0, 38)
-        f.BackgroundColor3 = C.surface
-        f.BorderSizePixel = 0
-        f.Parent = tabContents[tab]
-        corner(f, 8)
-        stroke(f, C.border, 1)
-        
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(0, 100, 1, 0)
-        label.Position = UDim2.new(0, 12, 0, 0)
-        label.BackgroundTransparency = 1
-        label.Font = Enum.Font.GothamMedium
-        label.TextSize = 12
-        label.TextColor3 = C.text
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Text = txt
-        label.Parent = f
-        
-        local valLabel = Instance.new("TextLabel")
-        valLabel.Size = UDim2.new(0, 36, 0, 18)
-        valLabel.Position = UDim2.new(1, -42, 0.5, -9)
-        valLabel.BackgroundColor3 = C.bg
-        valLabel.BorderSizePixel = 0
-        valLabel.Font = Enum.Font.Gotham
-        valLabel.TextSize = 11
-        valLabel.TextColor3 = C.accent
-        valLabel.Text = tostring(defaultVal)
-        valLabel.Parent = f
-        corner(valLabel, 4)
-        stroke(valLabel, C.border, 1)
-        
-        local track = Instance.new("Frame")
-        track.Size = UDim2.new(0, 100, 0, 6)
-        track.Position = UDim2.new(0, 115, 0.5, -3)
-        track.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-        track.BorderSizePixel = 0
-        track.Parent = f
-        corner(track, 3)
-        
-        local fill = Instance.new("Frame")
-        fill.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
-        fill.BorderSizePixel = 0
-        fill.Parent = track
-        corner(fill, 3)
-        
-        local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(0, 14, 0, 14)
-        btn.BackgroundColor3 = Color3.fromRGB(50, 220, 110)
-        btn.Text = ""
-        btn.AutoButtonColor = false
-        btn.Parent = f
-        corner(btn, 7)
-        stroke(btn, Color3.fromRGB(25, 150, 70), 1)
-        
-        local currentVal = defaultVal
-        
-        local function updateSlider(val)
-            local pct = (val - minVal) / (maxVal - minVal)
-            fill.Size = UDim2.new(pct, 0, 1, 0)
-            btn.Position = UDim2.new(pct, -7, 0.5, -7)
-            valLabel.Text = tostring(math.floor(val))
-            currentVal = val
-            pcall(cb, val)
-        end
-        
-        local function setFromMouse(mousePos)
-            local absPos = track.AbsolutePosition
-            local absSize = track.AbsoluteSize
-            local relX = mousePos.X - absPos.X
-            local pct = clamp(relX / absSize.X, 0, 1)
-            local val = math.floor(minVal + pct * (maxVal - minVal))
-            if val ~= currentVal then updateSlider(val) end
-        end
-        
-        btn.MouseButton1Down:Connect(function()
-            sliderDragging = true
-            sliderUpdateFunc = function(pos)
-                local absPos = track.AbsolutePosition
-                local absSize = track.AbsoluteSize
-                local relX = pos.X - absPos.X
-                local pct = clamp(relX / absSize.X, 0, 1)
-                local val = math.floor(minVal + pct * (maxVal - minVal))
-                if val ~= currentVal then updateSlider(val) end
-            end
-        end)
-        
-        track.MouseButton1Click:Connect(function()
-            setFromMouse(getMouseLocation())
-        end)
-        
-        updateSlider(defaultVal)
-    end
-    
     local function addKeybind(tab, txt, defaultKey, cb)
         local f = Instance.new("Frame")
         f.Size = UDim2.new(1, 0, 0, 38)
@@ -2391,22 +1806,10 @@ local function buildUI()
     -- Populate Tab Contents
     
     -- Settings Tab
-    addSectionHeader("Settings", "Preferences")
-    addToggle("Settings", "Save Settings", false, function(v)
-        saveEnabled = v
-        if v then saveSettings() end
-    end)
     addSectionHeader("Settings", "Keybinds")
     addKeybind("Settings", "Minimize Keybind", minimizeKey, function(key)
         minimizeKey = key
     end)
-    addSectionHeader("Settings", "Server")
-    addButton("Settings", "Copy Game PlaceID", copyPlaceId)
-    addButton("Settings", "Copy Server JobID", copyJobId)
-    addButton("Settings", "Teleport to Spawnpoint", teleportToSpawn)
-    addButton("Settings", "Server Hop (Standard)", serverHop)
-    addButton("Settings", "Server Hop (Empty Lobby)", serverHopEmpty)
-    addButton("Settings", "Rejoin Current Server", rejoinServer)
     
     -- Main Tab
     addSectionHeader("Main", "General")
@@ -2433,7 +1836,7 @@ local function buildUI()
     addButton("Main", "Give Classic BTools", giveBtools)
     
     addSectionHeader("Main", "Automation Tools")
-    addToggle("Main", "Auto Clicker", autoClickerEnabled, function(v)
+    addToggle("Main", "Auto Clicker", false, function(v)
         autoClickerEnabled = v
         notify("Automation", "Auto Clicker " .. (v and "ON" or "OFF"), 2)
     end)
@@ -2441,7 +1844,7 @@ local function buildUI()
         local n = tonumber(t)
         if n and n >= 0.01 then autoClickerDelay = n; notify("Automation", "Click rate: " .. n .. "s", 2) end
     end)
-    addToggle("Main", "Auto Key Presser", autoKeyEnabled, function(v)
+    addToggle("Main", "Auto Key Presser", false, function(v)
         autoKeyEnabled = v
         notify("Automation", "Auto Key Presser " .. (v and "ON" or "OFF"), 2)
     end)
@@ -2452,76 +1855,81 @@ local function buildUI()
         local n = tonumber(t)
         if n and n >= 0.1 then autoKeyDelay = n; notify("Automation", "Key rate: " .. n .. "s", 2) end
     end)
-    addToggle("Main", "Auto-Collect Items (nearby)", autoCollectEnabled, function(v)
+    addToggle("Main", "Auto-Collect Items (nearby)", false, function(v)
         autoCollectEnabled = v
         notify("Automation", "Auto-Collect " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Main", "Auto-Farm (ClickDetectors)", autoFarmEnabled, function(v)
+    addToggle("Main", "Auto-Farm (ClickDetectors)", false, function(v)
         autoFarmEnabled = v
         notify("Automation", "Auto-Farm " .. (v and "ON" or "OFF"), 2)
     end)
     
     -- Movement Tab
     addSectionHeader("Movement", "Toggles")
-    addToggle("Movement", "Enable Fly", flyEnabled, function(v)
+    addToggle("Movement", "Enable Fly", false, function(v)
         enableFly(v)
         notify("Movement", "Fly " .. (v and "Enabled" or "Disabled"), 2)
     end)
-    addToggle("Movement", "Enable NoClip", noclipEnabled, function(v)
-        setNoclip(v)
+    addToggle("Movement", "Enable NoClip", false, function(v)
+        noclipEnabled = v
+        if not v then pcall(function()
+            local char = LocalPlayer.Character
+            for _, p in ipairs(char:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide = true end end
+        end) end
         notify("Movement", "Noclip " .. (v and "Enabled" or "Disabled"), 2)
     end)
     addToggle("Movement", "Infinite Jump", false, function(v)
         infiniteJump(v)
     end)
-    addToggle("Movement", "Lock WalkSpeed", walkspeedEnabled, function(v)
+    addToggle("Movement", "Lock WalkSpeed", false, function(v)
         walkspeedEnabled = v
         notify("Movement", "WS Lock " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Movement", "Lock JumpPower", jumppowerEnabled, function(v)
+    addToggle("Movement", "Lock JumpPower", false, function(v)
         jumppowerEnabled = v
         notify("Movement", "JP Lock " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Movement", "Click Teleport (Ctrl + Click)", clickTpEnabled, function(v)
+    addToggle("Movement", "Click Teleport (Ctrl + Click)", false, function(v)
         clickTpEnabled = v
         notify("Movement", "Click TP " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Movement", "Spinbot", spinbotEnabled, function(v)
+    addToggle("Movement", "Spinbot", false, function(v)
         spinbotEnabled = v
         notify("Movement", "Spinbot " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Movement", "Anti-Sit Mode", antiSitEnabled, function(v)
+    addToggle("Movement", "Anti-Sit Mode", false, function(v)
         antiSitEnabled = v
         notify("Movement", "Anti-Sit " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Movement", "Vehicle Speed Multiplier", carSpeedEnabled, function(v)
+    addToggle("Movement", "Vehicle Speed Multiplier", false, function(v)
         carSpeedEnabled = v
         notify("Movement", "Vehicle Boost " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Movement", "B-Hop (Auto-Jump)", bhopEnabled, function(v)
+    addToggle("Movement", "B-Hop (Auto-Jump)", false, function(v)
         bhopEnabled = v
         notify("Movement", "B-Hop " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Movement", "God Mode (Immortality)", godModeEnabled, function(v)
-        setGodMode(v)
-        notify("Movement", "God Mode " .. (v and "ON - immune to damage" or "OFF - mortal"), 2)
+    addToggle("Movement", "No Fall Damage", false, function(v)
+        noFallDmgEnabled = v
+        notify("Movement", "No Fall Dmg " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Movement", "Water Walk", waterWalkEnabled, function(v)
+    addToggle("Movement", "Water Walk", false, function(v)
         waterWalkEnabled = v
         notify("Movement", "Water Walk " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Movement", "Teleport to Mouse (T key)", tpCursorEnabled, function(v)
+    addToggle("Movement", "Teleport to Mouse (T key)", false, function(v)
         tpCursorEnabled = v
         notify("Movement", "TP Cursor " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Movement", "Anti-Void Protection", antiVoidEnabled, function(v)
+    addToggle("Movement", "Anti-Void Protection", false, function(v)
         antiVoidEnabled = v
         notify("Movement", "Anti-Void " .. (v and "ON" or "OFF"), 2)
     end)
     
     addSectionHeader("Movement", "Settings")
-    addSlider("Movement", "Fly Speed", flySpeed, 5, 500, function(v)
-        flySpeed = v
+    addTextBox("Movement", "Fly Speed multiplier", flySpeed, function(t)
+        local n = tonumber(t)
+        if n then flySpeed = n; notify("Movement", "Fly Speed set to " .. n, 2) end
     end)
     addTextBox("Movement", "WalkSpeed value", targetWalkspeed, function(t)
         local n = tonumber(t)
@@ -2549,37 +1957,8 @@ local function buildUI()
         if n then carSpeedValue = n; notify("Movement", "Vehicle target speed: " .. n, 2) end
     end)
     
-    -- Combat Tab
-    addToggle("Trolling", "Hitbox Expander", hitboxesExpanded, function(v)
-        hitboxesExpanded = v
-        updateHitboxes()
-        notify("Trolling", "Hitboxes " .. (v and "Expanded" or "Restored"), 2)
-    end)
-    addTextBox("Trolling", "Hitbox Extender Size", hitboxSize, function(t)
-        local n = tonumber(t)
-        if n then 
-            hitboxSize = n 
-            if hitboxesExpanded then updateHitboxes() end
-            notify("Trolling", "Hitbox Size set to " .. n, 2) 
-        end
-    end)
-    
-    addSectionHeader("Trolling", "Target Utilities")
-    addButton("Trolling", "Kill All Players (FE Local)", killAllHumanoids)
-    addButton("Trolling", "Kill Target (Hover & Click)", killTarget)
-    addButton("Trolling", "Teleport to Closest Player", function()
-        local c = getClosestPlayer()
-        if c then teleportToPlayer(c.Name) else notify("Trolling", "No player found", 2) end
-    end)
-    addButton("Trolling", "Teleport to Random Player", teleportToRandom)
-    addButton("Trolling", "Bring All Players", bringAllPlayers)
-    addButton("Trolling", "Send All Away", sendAllAway)
-    addToggle("Trolling", "Loop Bring All", loopBringAllEnabled, toggleLoopBringAll)
-    addToggle("Trolling", "Grab/Drag Player (Click to grab)", grabPlayerEnabled, toggleGrabPlayer)
-    
-    addSectionHeader("Trolling", "Fling Tools")
-    addToggle("Trolling", "Fling All Players", flingAllEnabled, toggleFlingAll)
-    addToggle("Trolling", "Spin Fling (BodyAV)", flingEnabled, function(v)
+    addSectionHeader("Movement", "Fling Features")
+    addToggle("Movement", "Spin Fling (BodyAV)", false, function(v)
         flingEnabled = v
         if v then
             pcall(function()
@@ -2618,13 +1997,12 @@ local function buildUI()
                 end
             end)
         end
-        notify("Trolling", "Spin Fling " .. (v and "ON" or "OFF"), 2)
+        notify("Movement", "Spin Fling " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Trolling", "Walk Fling (velocity spam)", walkflingEnabled, function(v)
+    addToggle("Movement", "Walk Fling (velocity spam)", false, function(v)
         walkflingEnabled = v
         if v then
             setNoclip(true)
-            pcall(function() setServerOwnership(getCharacter(LocalPlayer)) end)
         else
             setNoclip(true)
             task.spawn(function()
@@ -2638,9 +2016,9 @@ local function buildUI()
                 setNoclip(false)
             end)
         end
-        notify("Trolling", "Walk Fling " .. (v and "ON" or "OFF"), 2)
+        notify("Movement", "Walk Fling " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Trolling", "Fly Fling (fly + fling)", flyflingEnabled, function(v)
+    addToggle("Movement", "Fly Fling (fly + fling)", false, function(v)
         flyflingEnabled = v
         if v then
             enableFly(true)
@@ -2653,24 +2031,54 @@ local function buildUI()
                 if r then r.Velocity = Vector3.new(0,0,0) end
             end)
         end
-        notify("Trolling", "Fly Fling " .. (v and "ON" or "OFF"), 2)
+        notify("Movement", "Fly Fling " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Trolling", "Anti-Fling Protection", antiflingEnabled, function(v)
+    addToggle("Movement", "Anti-Fling Protection", false, function(v)
         antiflingEnabled = v
-        notify("Trolling", "Anti-Fling " .. (v and "ON" or "OFF"), 2)
+        notify("Movement", "Anti-Fling " .. (v and "ON" or "OFF"), 2)
     end)
     
-    addSectionHeader("Trolling", "Trolling Tools")
-    addButton("Trolling", "Sit All Players", sitAllPlayers)
-    addButton("Trolling", "Freeze All Players", freezeAllPlayers)
-    addButton("Trolling", "Unfreeze All Players", unfreezeAllPlayers)
-    addButton("Trolling", "Explode All Players", explodeAllPlayers)
-    addButton("Trolling", "Noclip All Players (parts)", noclipAllPlayers)
-    addButton("Trolling", "Remove All Limbs (other)", removeAllLimbs)
+    -- Combat Tab
+    addSectionHeader("Trolling", "Automation")
+    addToggle("Trolling", "Auto Heal (use healing items)", false, function(v)
+        autoHealEnabled = v
+        notify("Trolling", "Auto Heal " .. (v and "ON" or "OFF"), 2)
+    end)
+    addToggle("Trolling", "Auto Parry (anti-ragdoll)", false, function(v)
+        autoParryEnabled = v
+        notify("Trolling", "Auto Parry " .. (v and "ON" or "OFF"), 2)
+    end)
+    addToggle("Trolling", "Auto Block (block near enemy)", false, function(v)
+        autoBlockEnabled = v
+        notify("Trolling", "Auto Block " .. (v and "ON" or "OFF"), 2)
+    end)
+    addSectionHeader("Trolling", "Hitbox")
+    addToggle("Trolling", "Hitbox Expander", false, function(v)
+        hitboxesExpanded = v
+        updateHitboxes()
+        notify("Trolling", "Hitboxes " .. (v and "Expanded" or "Restored"), 2)
+    end)
+    addTextBox("Trolling", "Hitbox Extender Size", hitboxSize, function(t)
+        local n = tonumber(t)
+        if n then 
+            hitboxSize = n 
+            if hitboxesExpanded then updateHitboxes() end
+            notify("Trolling", "Hitbox Size set to " .. n, 2) 
+        end
+    end)
+    
+    addSectionHeader("Trolling", "Target Utilities")
+    addButton("Trolling", "Kill All Players (FE Local)", killAllHumanoids)
+    addButton("Trolling", "Kill Target (Hover & Click)", killTarget)
+    addButton("Trolling", "Teleport to Closest Player", function()
+        local c = getClosestPlayer()
+        if c then teleportToPlayer(c.Name) else notify("Trolling", "No player found", 2) end
+    end)
+    addButton("Trolling", "Teleport to Random Player", teleportToRandom)
     
     -- Aim Tab
     addSectionHeader("Aim", "Aimbot Setup")
-    addToggle("Aim", "Camera Lock Aimbot (RMB)", aimbotEnabled, function(v)
+    addToggle("Aim", "Camera Lock Aimbot (RMB)", false, function(v)
         aimbotEnabled = v
         notify("Aim", "Aimbot " .. (v and "ON" or "OFF"), 2)
     end)
@@ -2678,33 +2086,41 @@ local function buildUI()
         aimHitPart = v
         notify("Aim", "Hit Part: " .. v, 2)
     end)
+    addToggle("Aim", "Team Check (skip teammates)", false, function(v)
+        teamCheckEnabled = v
+        notify("Aim", "Team Check " .. (v and "ON" or "OFF"), 2)
+    end)
+    addTextBox("Aim", "Prediction (seconds)", aimPrediction, function(t)
+        local n = tonumber(t)
+        if n and n >= 0 and n <= 1 then aimPrediction = n; notify("Aim", "Prediction set to " .. n, 2) end
+    end)
     
     addSectionHeader("Aim", "Triggerbot")
-    addToggle("Aim", "Triggerbot", triggerbotEnabled, function(v)
+    addToggle("Aim", "Triggerbot", false, function(v)
         triggerbotEnabled = v
         notify("Aim", "Triggerbot " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Aim", "Silent Aim (no camera move)", silentAimEnabled, function(v)
+    addToggle("Aim", "Silent Aim (no camera move)", false, function(v)
         silentAimEnabled = v
         notify("Aim", "Silent Aim " .. (v and "ON" or "OFF"), 2)
     end)
     
     addSectionHeader("Aim", "Weapon Control")
-    addToggle("Aim", "No Recoil", noRecoilEnabled, function(v)
+    addToggle("Aim", "No Recoil", false, function(v)
         noRecoilEnabled = v
         notify("Aim", "No Recoil " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Aim", "No Spread", noSpreadEnabled, function(v)
+    addToggle("Aim", "No Spread", false, function(v)
         noSpreadEnabled = v
         notify("Aim", "No Spread " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Aim", "Auto Weapon Swap", autoWeaponEnabled, function(v)
+    addToggle("Aim", "Auto Weapon Swap", false, function(v)
         autoWeaponEnabled = v
         notify("Aim", "Auto Weapon " .. (v and "ON" or "OFF"), 2)
     end)
     
     addSectionHeader("Aim", "Crosshair")
-    addToggle("Aim", "Draw Center Crosshair", crosshairEnabled, toggleCrosshair)
+    addToggle("Aim", "Draw Center Crosshair", false, toggleCrosshair)
     addTextBox("Aim", "Crosshair Size (px)", crosshairSize, function(t)
         local n = tonumber(t)
         if n then crosshairSize = clamp(math.floor(n), 4, 64); rebuildCrosshair(); notify("Aim", "Crosshair Size: " .. n, 2) end
@@ -2718,28 +2134,453 @@ local function buildUI()
         end
     end)
     
+    -- Trolling Tab
+    addSectionHeader("Trolling", "Actions")
+    addToggle("Trolling", "Fling All", false, function(v)
+        flingEnabled = v
+        _G.capyFlingAllActive = v
+        if v then
+            task.spawn(function()
+                while _G.capyFlingAllActive do
+                    pcall(function()
+                        local char = LocalPlayer.Character
+                        local root = getRootPart(LocalPlayer)
+                        local hum = getHumanoid(LocalPlayer)
+                        if not char or not root or not hum then return end
+                        setNoclip(true)
+                        for _, child in pairs(char:GetDescendants()) do
+                            if child:IsA("BasePart") then
+                                child.CustomPhysicalProperties = PhysicalProperties.new(100, 0.3, 0.5)
+                                child.CanCollide = false
+                                child.Massless = true
+                            end
+                        end
+                    end)
+                    local targets = {}
+                    for _, p in ipairs(Players:GetPlayers()) do
+                        if p ~= LocalPlayer and getRootPart(p) then
+                            targets[#targets+1] = p
+                        end
+                    end
+                    for _, target in ipairs(targets) do
+                        if not _G.capyFlingAllActive then break end
+                        local tr = getRootPart(target)
+                        if tr then
+                            local startPos = tr.Position
+                            local myRoot = getRootPart(LocalPlayer)
+                            if myRoot then
+                                myRoot.CFrame = CFrame.new(startPos + Vector3.new(0, 3, 0))
+                                if not tr:FindFirstChild("CapyFlingAV") then
+                                    local av = Instance.new("BodyAngularVelocity")
+                                    av.Name = "CapyFlingAV"
+                                    av.AngularVelocity = Vector3.new(0, 99999, 0)
+                                    av.MaxTorque = Vector3.new(0, math.huge, 0)
+                                    av.P = math.huge
+                                    av.Parent = tr
+                                end
+                            end
+                            local timeout = 0
+                            local flung = false
+                            while timeout < 30 and not flung and _G.capyFlingAllActive do
+                                task.wait(0.1)
+                                timeout = timeout + 1
+                                if tr and tr.Parent then
+                                    local vel = tr.Velocity.Magnitude
+                                    if vel > 50 then
+                                        flung = true
+                                    end
+                                end
+                            end
+                        end
+                        task.wait(0.2)
+                    end
+                    task.wait(1)
+                end
+                flingEnabled = false
+                setNoclip(false)
+                pcall(function()
+                    local char = LocalPlayer.Character
+                    if flingBodyAV and flingBodyAV.Parent then flingBodyAV:Destroy() end
+                    flingBodyAV = nil
+                    if char then
+                        for _, child in pairs(char:GetDescendants()) do
+                            if child:IsA("BasePart") then
+                                child.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.3, 0.5)
+                            end
+                        end
+                    end
+                    for _, p in ipairs(Players:GetPlayers()) do
+                        if p ~= LocalPlayer and getRootPart(p) then
+                            local av = getRootPart(p):FindFirstChild("CapyFlingAV")
+                            if av then av:Destroy() end
+                        end
+                    end
+                end)
+            end)
+        else
+            _G.capyFlingAllActive = false
+        end
+        notify("Trolling", "Fling All " .. (v and "ON" or "OFF"), 2)
+    end)
+    addToggle("Trolling", "Grab Player (click target)", false, function(v)
+        _G.capyGrab = v
+        notify("Trolling", "Grab Player " .. (v and "ON" or "OFF"), 2)
+    end)
+    addToggle("Trolling", "Loop Bring (all players)", false, function(v)
+        loopBringEnabled = v
+        notify("Trolling", "Loop Bring " .. (v and "ON" or "OFF"), 2)
+    end)
+    
+    addSectionHeader("Trolling", "One-Click Actions")
+    addButton("Trolling", "Bring All (teleport to me)", function()
+        local r = getRootPart(LocalPlayer)
+        if not r then return end
+        local count = 0
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local pr = getRootPart(p)
+                if pr then
+                    local ok = pcall(function()
+                        pr.CFrame = r.CFrame * CFrame.new(0, 4, 0)
+                    end)
+                    if ok then count = count + 1 end
+                end
+            end
+        end
+        notify("Trolling", "Brought " .. count .. " players", 2)
+    end)
+    addButton("Trolling", "Send All (launch away)", function()
+        local r = getRootPart(LocalPlayer)
+        if not r then return end
+        local count = 0
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local pr = getRootPart(p)
+                if pr then
+                    local ok = pcall(function()
+                        pr.CFrame = CFrame.new(pr.Position.X + math.random(-300, 300), -100, pr.Position.Z + math.random(-300, 300))
+                    end)
+                    if ok then count = count + 1 end
+                end
+            end
+        end
+        notify("Trolling", "Sent " .. count .. " players", 2)
+    end)
+    addButton("Trolling", "Sit All Players", function()
+        local count = 0
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local h = getHumanoid(p)
+                if h then
+                    local ok = pcall(function() h.Sit = true end)
+                    if ok then count = count + 1 end
+                end
+            end
+        end
+        notify("Trolling", "Sat " .. count .. " players", 2)
+    end)
+    addButton("Trolling", "Freeze All", function()
+        local count = 0
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local pr = getRootPart(p)
+                if pr then
+                    local ok = pcall(function() pr.Anchored = true end)
+                    if ok then count = count + 1 end
+                end
+            end
+        end
+        notify("Trolling", "Froze " .. count .. " players", 2)
+    end)
+    addButton("Trolling", "Unfreeze All", function()
+        local count = 0
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local pr = getRootPart(p)
+                if pr then
+                    local ok = pcall(function() pr.Anchored = false end)
+                    if ok then count = count + 1 end
+                end
+            end
+        end
+        notify("Trolling", "Unfroze " .. count .. " players", 2)
+    end)
+    addButton("Trolling", "Explode All", function()
+        local count = 0
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local pr = getRootPart(p)
+                if pr then
+                    local ok = pcall(function()
+                        local e = Instance.new("Explosion")
+                        e.Position = pr.Position
+                        e.BlastRadius = 12
+                        e.BlastPressure = 100000
+                        e.DestroyJointRadiusPercent = 1
+                        e.Parent = Workspace
+                    end)
+                    if ok then count = count + 1 end
+                end
+            end
+        end
+        notify("Trolling", "Exploded " .. count .. " players", 2)
+    end)
+    addButton("Trolling", "Noclip All Parts", function()
+        local count = 0
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local c = getCharacter(p)
+                if c then
+                    for _, v in pairs(c:GetChildren()) do
+                        local ok = pcall(function()
+                            if v:IsA("BasePart") then v.CanCollide = false end
+                        end)
+                        if ok then count = count + 1 end
+                    end
+                end
+            end
+        end
+        notify("Trolling", "Noclipped " .. count .. " parts", 2)
+    end)
+    addButton("Trolling", "Remove All Limbs", function()
+        local count = 0
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local c = getCharacter(p)
+                if c then
+                    for _, v in pairs(c:GetChildren()) do
+                        local ok = pcall(function()
+                            if v:IsA("BasePart") and v.Name ~= "HumanoidRootPart" and v.Name ~= "Head" then
+                                v:Destroy()
+                                count = count + 1
+                            end
+                        end)
+                    end
+                end
+            end
+        end
+        notify("Trolling", "Removed " .. count .. " limbs", 2)
+    end)
+    addButton("Trolling", "Jail All (box trap)", function()
+        local r = getRootPart(LocalPlayer)
+        if not r then return end
+        local count = 0
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local pr = getRootPart(p)
+                local pt = getCharacter(p)
+                if pr and pt then
+                    local ok = pcall(function()
+                        local jail = Instance.new("Part")
+                        jail.Size = Vector3.new(20, 20, 20)
+                        jail.CFrame = pr.CFrame
+                        jail.Anchored = true
+                        jail.Transparency = 0.5
+                        jail.CanCollide = true
+                        jail.Material = Enum.Material.Neon
+                        jail.BrickColor = BrickColor.new("Deep blue")
+                        jail.Parent = Workspace
+                        jail.Name = "CapyJail_" .. p.Name
+                        local function addWall(pos, size)
+                            local w = Instance.new("Part")
+                            w.Size = size
+                            w.CFrame = pos
+                            w.Anchored = true
+                            w.Material = Enum.Material.Neon
+                            w.BrickColor = BrickColor.new("Deep blue")
+                            w.Parent = jail
+                        end
+                        addWall(jail.CFrame * CFrame.new(0, 10, 0), Vector3.new(20, 1, 20))
+                        addWall(jail.CFrame * CFrame.new(0, -10, 0), Vector3.new(20, 1, 20))
+                        addWall(jail.CFrame * CFrame.new(10, 0, 0), Vector3.new(1, 20, 20))
+                        addWall(jail.CFrame * CFrame.new(-10, 0, 0), Vector3.new(1, 20, 20))
+                        addWall(jail.CFrame * CFrame.new(0, 0, 10), Vector3.new(20, 20, 1))
+                        addWall(jail.CFrame * CFrame.new(0, 0, -10), Vector3.new(20, 20, 1))
+                        pr.CFrame = jail.CFrame
+                    end)
+                    if ok then count = count + 1 end
+                end
+            end
+        end
+        notify("Trolling", "Jailed " .. count .. " players", 2)
+    end)
+    addButton("Trolling", "Unjail All", function()
+        local count = 0
+        for _, v in pairs(Workspace:GetChildren()) do
+            if v.Name and v.Name:find("CapyJail_") then
+                local ok = pcall(function() v:Destroy() end)
+                if ok then count = count + 1 end
+            end
+        end
+        notify("Trolling", "Destroyed " .. count .. " jails", 2)
+    end)
+    
+    addSectionHeader("Trolling", "Annoy")
+    addButton("Trolling", "Infect All (follow you)", function()
+        local r = getRootPart(LocalPlayer)
+        if not r then return end
+        local count = 0
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local h = getHumanoid(p)
+                if h then
+                    local ok = pcall(function()
+                        h:MoveTo(r.Position + Vector3.new(math.random(-3, 3), 0, math.random(-3, 3)))
+                        h.MoveToFinished:Connect(function() end)
+                    end)
+                    if ok then count = count + 1 end
+                end
+            end
+        end
+        notify("Trolling", "Infecting " .. count .. " players", 2)
+    end)
+    addButton("Trolling", "Spin Others (LAUNCH)", function()
+        local count = 0
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local root = getRootPart(p)
+                if root then
+                    local ok = pcall(function()
+                        local av = Instance.new("BodyAngularVelocity")
+                        av.Name = "CapySpinAV"
+                        av.AngularVelocity = Vector3.new(0, 99999, 0)
+                        av.MaxTorque = Vector3.new(0, math.huge, 0)
+                        av.P = math.huge
+                        av.Parent = root
+                        task.delay(3, function()
+                            if av and av.Parent then av:Destroy() end
+                        end)
+                    end)
+                    if ok then count = count + 1 end
+                end
+            end
+        end
+        notify("Trolling", "Spinning " .. count .. " players", 2)
+    end)
+    addButton("Trolling", "Forcefield All", function()
+        local count = 0
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local c = getCharacter(p)
+                if c and not c:FindFirstChildOfClass("ForceField") then
+                    local ok = pcall(function()
+                        local ff = Instance.new("ForceField")
+                        ff.Visible = true
+                        ff.Parent = c
+                    end)
+                    if ok then count = count + 1 end
+                end
+            end
+        end
+        notify("Trolling", "Forcefielded " .. count .. " players", 2)
+    end)
+    addButton("Trolling", "Fire All", function()
+        local count = 0
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local c = getCharacter(p)
+                if c then
+                    local ok = pcall(function()
+                        local fire = Instance.new("Fire")
+                        fire.Parent = c:FindFirstChild("Head") or c:FindFirstChildWhichIsA("BasePart")
+                    end)
+                    if ok then count = count + 1 end
+                end
+            end
+        end
+        notify("Trolling", "Set " .. count .. " players on fire", 2)
+    end)
+    addButton("Trolling", "Swap All (random shuffle)", function()
+        local roots = {}
+        local r = getRootPart(LocalPlayer)
+        if not r then return end
+        for _, p in ipairs(Players:GetPlayers()) do
+            local pr = getRootPart(p)
+            if pr then
+                roots[p] = pr.CFrame
+            end
+        end
+        local players = {}
+        for p, _ in pairs(roots) do players[#players+1] = p end
+        for i = #players, 2, -1 do
+            local j = math.random(i)
+            players[i], players[j] = players[j], players[i]
+        end
+        local count = 0
+        for i, p in ipairs(players) do
+            local target = players[i % #players + 1]
+            local pr = getRootPart(p)
+            local tr = roots[target]
+            if pr and tr then
+                local ok = pcall(function() pr.CFrame = tr end)
+                if ok then count = count + 1 end
+            end
+        end
+        notify("Trolling", "Swapped " .. count .. " players", 2)
+    end)
+    addButton("Trolling", "Lag All (spawn parts)", function()
+        local count = 0
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local pr = getRootPart(p)
+                if pr then
+                    for _ = 1, 8 do
+                        local ok = pcall(function()
+                            local part = Instance.new("Part")
+                            part.Size = Vector3.new(2, 2, 2)
+                            part.CFrame = pr.CFrame * CFrame.new(math.random(-8, 8), math.random(0, 8), math.random(-8, 8))
+                            part.Velocity = Vector3.new(math.random(-100, 100), math.random(0, 100), math.random(-100, 100))
+                            part.Anchored = false
+                            part.BrickColor = BrickColor.random()
+                            part.Material = Enum.Material.Neon
+                            part.Parent = Workspace
+                            task.delay(5, function()
+                                if part and part.Parent then part:Destroy() end
+                            end)
+                            count = count + 1
+                        end)
+                    end
+                end
+            end
+        end
+        notify("Trolling", "Spawned " .. count .. " lag parts", 2)
+    end)
+    
     -- Visuals Tab
     addSectionHeader("Visuals", "ESP Options")
-    addToggle("Visuals", "Name ESP (Billboard)", espEnabled, toggleEsp)
-    addToggle("Visuals", "Box ESP (3D Outline)", boxEspEnabled, toggleBoxEsp)
-    addToggle("Visuals", "Tracer ESP (Laser Links)", tracerEspEnabled, toggleTracerEsp)
-    addToggle("Visuals", "Highlight Chams", chamsEnabled, toggleChams)
-    addToggle("Visuals", "Rainbow Chams Mode", rainbowChamsEnabled, function(v)
+    addToggle("Visuals", "Name ESP (Billboard)", false, toggleEsp)
+    addToggle("Visuals", "Box ESP (3D Outline)", false, toggleBoxEsp)
+    addToggle("Visuals", "Tracer ESP (Laser Links)", false, toggleTracerEsp)
+    addToggle("Visuals", "Highlight Chams", false, toggleChams)
+    addToggle("Visuals", "Rainbow Chams Mode", false, function(v)
         rainbowChamsEnabled = v
         if v then chamsEnabled = true end
         notify("Visuals", "Rainbow Chams " .. (v and "ON" or "OFF"), 2)
     end)
+    addToggle("Visuals", "ESP Team Check", false, function(v)
+        espTeamCheck = v
+        notify("Visuals", "ESP Team Check " .. (v and "ON" or "OFF"), 2)
+    end)
+    
+    addSectionHeader("Visuals", "Overlays")
+    addToggle("Visuals", "Show Watermark", false, function(v)
+        watermarkEnabled = v
+        notify("Visuals", "Watermark " .. (v and "ON" or "OFF"), 2)
+    end)
+    addToggle("Visuals", "No Gravity", false, function(v)
+        noGravityEnabled = v
+        notify("Visuals", "No Gravity " .. (v and "ON" or "OFF"), 2)
+    end)
     
     addSectionHeader("Visuals", "Camera & Environment")
     addToggle("Visuals", "Full Bright", false, setFullBright)
-    addToggle("Visuals", "Disable Game Fog", noFogEnabled, toggleNoFog)
-    addToggle("Visuals", "Infinite Camera Zoom", infiniteZoomEnabled, function(v)
-        infiniteZoomEnabled = v
+    addToggle("Visuals", "Disable Game Fog", false, toggleNoFog)
+    addToggle("Visuals", "Infinite Camera Zoom", false, function(v)
         local camera = Workspace and Workspace.CurrentCamera
         if camera then camera.MaxZoomDistance = v and 99999 or 400 end
         notify("Visuals", "Infinite Zoom " .. (v and "Enabled" or "Disabled"), 2)
     end)
-    addToggle("Visuals", "Anti-Blind Effect removal", antiBlindEnabled, function(v)
+    addToggle("Visuals", "Anti-Blind Effect removal", false, function(v)
         antiBlindEnabled = v
         notify("Visuals", "Anti-Blind " .. (v and "ON" or "OFF"), 2)
     end)
@@ -2747,7 +2588,7 @@ local function buildUI()
         LocalPlayer.DevCameraOcclusionMode = v and Enum.DevCameraOcclusionMode.Invisicam or Enum.DevCameraOcclusionMode.Zoom
         notify("Visuals", "Camera Noclip " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Visuals", "Wall Transparency (X-Ray)", wallTransEnabled, function(v)
+    addToggle("Visuals", "Wall Transparency (X-Ray)", false, function(v)
         wallTransEnabled = v
         notify("Visuals", "X-Ray " .. (v and "ON" or "OFF"), 2)
     end)
@@ -2755,23 +2596,23 @@ local function buildUI()
         toggleObjectEsp(v)
         notify("Visuals", "Object ESP " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Visuals", "Glow on Target Player", glowTargetEnabled, function(v)
+    addToggle("Visuals", "Glow on Target Player", false, function(v)
         glowTargetEnabled = v
         notify("Visuals", "Glow Target " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Visuals", "Off-Screen Player Arrows", offscreenArrowsEnabled, function(v)
+    addToggle("Visuals", "Off-Screen Player Arrows", false, function(v)
         offscreenArrowsEnabled = v
         notify("Visuals", "Arrows " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Visuals", "Player List Overlay", playerListEnabled, function(v)
+    addToggle("Visuals", "Player List Overlay", false, function(v)
         playerListEnabled = v
         notify("Visuals", "Player List " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Visuals", "Speedometer", speedometerEnabled, function(v)
+    addToggle("Visuals", "Speedometer", false, function(v)
         speedometerEnabled = v
         notify("Visuals", "Speedometer " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Visuals", "FPS + Ping Monitor", fpsMonitorEnabled, function(v)
+    addToggle("Visuals", "FPS + Ping Monitor", false, function(v)
         fpsMonitorEnabled = v
         notify("Visuals", "FPS Monitor " .. (v and "ON" or "OFF"), 2)
     end)
@@ -2809,8 +2650,8 @@ local function buildUI()
     
     -- Utility Tab
     addSectionHeader("Utility", "System Options")
-    addToggle("Utility", "Prevent AFK Idle Kick", antiAfkEnabled, antiAfk)
-    addToggle("Utility", "Chat Spammer", spammerEnabled, function(v)
+    addToggle("Utility", "Prevent AFK Idle Kick", false, antiAfk)
+    addToggle("Utility", "Chat Spammer", false, function(v)
         spammerEnabled = v
         notify("Utility", "Spammer " .. (v and "ON" or "OFF"), 2)
     end)
@@ -2823,27 +2664,27 @@ local function buildUI()
     end)
     
     addSectionHeader("Utility", "Bypasses & Protection")
-    addToggle("Utility", "Ctrl + Click Delete Tool", clickDestroyEnabled, function(v)
+    addToggle("Utility", "Ctrl + Click Delete Tool", false, function(v)
         clickDestroyEnabled = v
         notify("Utility", "Ctrl+Click Delete " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Utility", "Anti-Ragdoll Mode", antiRagdollEnabled, function(v)
+    addToggle("Utility", "Anti-Ragdoll Mode", false, function(v)
         antiRagdollEnabled = v
         notify("Utility", "Anti-Ragdoll " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Utility", "Anti-Freeze Protection", antiFreezeEnabled, function(v)
+    addToggle("Utility", "Anti-Freeze Protection", false, function(v)
         antiFreezeEnabled = v
         notify("Utility", "Anti-Freeze " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Utility", "Local Player Invisible (FE Local)", localInvisible, function(v)
+    addToggle("Utility", "Local Player Invisible (FE Local)", false, function(v)
         localInvisible = v
         notify("Utility", "Local Invisibility " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Utility", "Local Headless Mode (Local Only)", headlessEnabled, function(v)
+    addToggle("Utility", "Local Headless Mode (Local Only)", false, function(v)
         headlessEnabled = v
         notify("Utility", "Headless " .. (v and "ON" or "OFF"), 2)
     end)
-    addToggle("Utility", "Remove Local Limbs (Local Only)", noLimbsEnabled, function(v)
+    addToggle("Utility", "Remove Local Limbs (Local Only)", false, function(v)
         noLimbsEnabled = v
         notify("Utility", "Limb remover " .. (v and "ON" or "OFF"), 2)
     end)
@@ -2854,80 +2695,17 @@ local function buildUI()
     
     addSectionHeader("Utility", "Shortcuts")
     addButton("Utility", "Copy Current Coordinates", copyPosition)
+    addButton("Utility", "Copy Game PlaceID", copyPlaceId)
+    addButton("Utility", "Copy Server JobID", copyJobId)
     addButton("Utility", "FPS Boost (Reduce Graphics)", boostFps)
     addButton("Utility", "FPS Heavy Boost (Remove Particles)", boostFPSHeavy)
     addButton("Utility", "Destroy All Seat Blocks", destroySeats)
+    addButton("Utility", "Teleport to Spawnpoint", teleportToSpawn)
+    addButton("Utility", "Server Hop (Standard)", serverHop)
+    addButton("Utility", "Server Hop (Empty Lobby)", serverHopEmpty)
+    addButton("Utility", "Rejoin Current Server", rejoinServer)
     
     selectTab("Main")
-    
-    -- Forward-declare toggleMenu so all handlers can capture it as a local
-    local toggleMenu
-    
-    -- Floating minimized indicator (like Delta executor)
-    local floatBtn = Instance.new("TextButton")
-    floatBtn.Name = "CapyggFloater"
-    floatBtn.Size = UDim2.new(0, 52, 0, 52)
-    floatBtn.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
-    floatBtn.Text = ""
-    floatBtn.AutoButtonColor = false
-    floatBtn.Visible = false
-    floatBtn.BorderSizePixel = 0
-    floatBtn.Active = true
-    floatBtn.Parent = sg
-    floatBtn.Selectable = false
-    corner(floatBtn, 26)
-    stroke(floatBtn, Color3.fromRGB(25, 150, 70), 1)
-    
-    local fLabel = Instance.new("TextLabel")
-    fLabel.Size = UDim2.new(1, 0, 1, 0)
-    fLabel.BackgroundTransparency = 1
-    fLabel.Font = Enum.Font.GothamBold
-    fLabel.TextSize = 34
-    fLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    fLabel.Text = "c"
-    fLabel.Active = false
-    fLabel.Parent = floatBtn
-    
-    local fDidDrag = false
-    local fDragCon, fEndCon
-    floatBtn.MouseButton1Down:Connect(function()
-        fDidDrag = false
-        if fDragCon then fDragCon:Disconnect(); fDragCon = nil end
-        if fEndCon then fEndCon:Disconnect(); fEndCon = nil end
-        local startPos = UserInputService:GetMouseLocation()
-        local btnPos = floatBtn.Position
-        fDragCon = UserInputService.InputChanged:Connect(function(ch)
-            if ch.UserInputType == Enum.UserInputType.MouseMovement then
-                local delta = ch.Position - startPos
-                if delta.Magnitude > 8 then
-                    fDidDrag = true
-                    floatBtn.Position = UDim2.new(btnPos.X.Scale, btnPos.X.Offset + delta.X, btnPos.Y.Scale, btnPos.Y.Offset + delta.Y)
-                end
-            end
-        end)
-        fEndCon = UserInputService.InputEnded:Connect(function(en)
-            if en.UserInputType == Enum.UserInputType.MouseButton1 then
-                if fDragCon then fDragCon:Disconnect(); fDragCon = nil end
-                if fEndCon then fEndCon:Disconnect(); fEndCon = nil end
-                if not fDidDrag then
-                    toggleMenu()
-                end
-            end
-        end)
-    end)
-    
-    floatBtn.MouseEnter:Connect(function()
-        TweenService:Create(floatBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(50, 220, 110)}):Play()
-    end)
-    floatBtn.MouseLeave:Connect(function()
-        TweenService:Create(floatBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(34, 197, 94)}):Play()
-    end)
-    
-    connections["ToggleMenu"] = UserInputService.InputBegan:Connect(function(input, processed)
-        if input.KeyCode == minimizeKey then
-            toggleMenu()
-        end
-    end)
     
     -- Minimize button
     local minBtn = Instance.new("TextButton")
@@ -2977,17 +2755,13 @@ local function buildUI()
         TweenService:Create(closeBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(239, 68, 68)}):Play()
     end)
     
-    -- Show/Hide handler (all dependencies declared above)
-    toggleMenu = function()
+    -- Show/Hide handler
+    local function toggleMenu()
         menuOpen = not menuOpen
         if menuOpen then
             win.Visible = true
-            floatBtn.Visible = false
             TweenService:Create(uiScale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
         else
-            local winPos = win.AbsolutePosition
-            floatBtn.Position = UDim2.new(0, winPos.X, 0, winPos.Y)
-            floatBtn.Visible = true
             local t = TweenService:Create(uiScale, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0})
             t:Play()
             t.Completed:Connect(function()
@@ -2995,6 +2769,12 @@ local function buildUI()
             end)
         end
     end
+    
+    connections["ToggleMenu"] = UserInputService.InputBegan:Connect(function(input, processed)
+        if not processed and input.KeyCode == minimizeKey then
+            toggleMenu()
+        end
+    end)
     
     return win
 end
@@ -3008,7 +2788,6 @@ _G.CapyCleanUp = function()
     connections = {}
     
     -- Reset state toggles
-    restoreNoclip()
     noclipEnabled = false
     flyEnabled = false
     walkspeedEnabled = false
@@ -3031,8 +2810,7 @@ _G.CapyCleanUp = function()
     noLimbsEnabled = false
     triggerbotEnabled = false
     bhopEnabled = false
-    restoreGodMode()
-    godModeEnabled = false
+    noFallDmgEnabled = false
     waterWalkEnabled = false
     tpCursorEnabled = false
     antiVoidEnabled = false
@@ -3054,11 +2832,6 @@ _G.CapyCleanUp = function()
     walkflingEnabled = false
     flyflingEnabled = false
     antiflingEnabled = false
-    flingAllEnabled = false
-    grabPlayerEnabled = false
-    loopBringAllEnabled = false
-    pcall(cleanupFlingAll)
-    pcall(releaseGrabbedPlayer)
     
     -- Restore core defaults
     pcall(function()
@@ -3105,242 +2878,240 @@ _G.CapyCleanUp = function()
     debugLog("Universal Admin uninstalled successfully.")
 end
 
--- Load saved settings before building UI
-pcall(loadSettings)
-
--- Cleanup any visual boxes/adornments on local character at startup
-pcall(function()
-    local char = LocalPlayer and LocalPlayer.Character
-    if char then
-        for _, v in pairs(char:GetDescendants()) do
-            if v:IsA("SelectionBox") or v:IsA("BoxHandleAdornment") or v:IsA("Highlight") or (v:IsA("BillboardGui") and v.Name:find("Capy")) then
-                v:Destroy()
-            end
-        end
-    end
-end)
-
 -- Initialize UI
-capyLog("Building UI...")
 local loadedWindow = nil
 local success, err = pcall(function()
-    capyLog("Inside UI pcall...")
     local ok, win = pcall(buildUI)
-    capyLog("buildUI returned: ok=" .. tostring(ok) .. " win=" .. tostring(win ~= nil))
     if ok then loadedWindow = win end
 end)
-capyLog("UI pcall done: success=" .. tostring(success) .. " loaded=" .. tostring(loadedWindow ~= nil))
 
 if success and loadedWindow then
-    capyLog("UI build successful!")
     debugLog("UI build successful.")
-    notify("Capy.gg Admin", "Universal Admin loaded! Press RightControl to hide/show.", 5)
+    notify("Capy.gg Admin", "Universal Admin loaded! Press RightShift to hide/show.", 5)
 else
-    capyLog("UI build failed: " .. tostring(err))
     debugLog("UI build failed: " .. tostring(err))
     notify("Capy.gg Admin", "UI generation failed.", 5)
 end
 
-capyLog("Starting physics loops...")
-
--- Physics loop connections
-connections["Stepped"] = RunService.Stepped:Connect(function()
-    pcall(function()
-        local char = LocalPlayer.Character
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
-        local root = char and char:FindFirstChild("HumanoidRootPart")
-        
-        -- Infinite Camera Zoom
-        local cam = Workspace and Workspace.CurrentCamera
-        if cam and infiniteZoomEnabled then
-            cam.MaxZoomDistance = 99999
-        end
-        
-        -- Enforce WalkSpeed
-        if walkspeedEnabled and hum then
-            hum.WalkSpeed = targetWalkspeed
-        end
-        
-        -- Enforce JumpPower
-        if jumppowerEnabled and hum then
-            hum.JumpPower = targetJumppower
-            hum.UseJumpPower = true
-        end
-        
-        -- Flight
-        if flyEnabled and flyVelocity and flyGyro and root then
-            updateFly()
-        end
-        
-        -- Spinbot
-        if spinbotEnabled and root then
-            root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(spinSpeed), 0)
-        end
-        
-        -- Hitbox Expander loop override
-        if hitboxesExpanded then
-            updateHitboxes()
-        end
-        
-        -- Car Speed Boost
-        if carSpeedEnabled and hum and hum.SeatPart and hum.SeatPart:IsA("VehicleSeat") then
-            local seat = hum.SeatPart
-            seat.MaxSpeed = carSpeedValue
-            if seat.Throttle > 0 then
-                seat.Velocity = seat.CFrame.LookVector * carSpeedValue
-            end
-        end
-        
-        -- Anti-Sit (skip for 1.5s after respawn)
-        if antiSitEnabled and hum then
-            if now() - (lastSpawnTime or 0) > 1.5 then
-                hum.Sit = false
-            end
-        end
-        
-        -- Anti-Freeze (skip for 1s after respawn to let game finish spawning)
-        if antiFreezeEnabled and not flyEnabled and char then
-            local elapsed = now() - (lastSpawnTime or 0)
-            if elapsed > 1 then
+-- Physics loop connections (Stepped was removed from Roblox Luau; use Heartbeat)
+if RunService.Heartbeat then
+    connections["Stepped"] = RunService.Heartbeat:Connect(function()
+        pcall(function()
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            
+            -- Noclip
+            if noclipEnabled and char then
                 for _, part in ipairs(char:GetChildren()) do
-                    if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and part.Anchored then
-                        part.Anchored = false
-                    end
+                    if part:IsA("BasePart") then part.CanCollide = false end
                 end
             end
-        end
-        
-        -- Anti-Ragdoll (skip for 1s after respawn)
-        if antiRagdollEnabled and char then
-            local elapsed = now() - (lastSpawnTime or 0)
-            if elapsed > 1 then
-                for _, joint in ipairs(char:GetDescendants()) do
-                    if joint:IsA("HingeConstraint") or joint:IsA("BallSocketConstraint") then
-                        joint.Enabled = false
-                    end
+            
+            -- Enforce WalkSpeed
+            if walkspeedEnabled and hum then
+                hum.WalkSpeed = targetWalkspeed
+            end
+            
+            -- Enforce JumpPower
+            if jumppowerEnabled and hum then
+                hum.JumpPower = targetJumppower
+                hum.UseJumpPower = true
+            end
+            
+            -- Flight
+            if flyEnabled and flyVelocity and flyGyro and root then
+                updateFly()
+            end
+            
+            -- Spinbot
+            if spinbotEnabled and root then
+                root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(spinSpeed), 0)
+            end
+            
+            -- Hitbox Expander loop override
+            if hitboxesExpanded then
+                updateHitboxes()
+            end
+            
+            -- Car Speed Boost
+            if carSpeedEnabled and hum and hum.SeatPart and hum.SeatPart:IsA("VehicleSeat") then
+                local seat = hum.SeatPart
+                seat.MaxSpeed = carSpeedValue
+                if seat.Throttle > 0 then
+                    seat.Velocity = seat.CFrame.LookVector * carSpeedValue
                 end
             end
-        end
-        
-        -- God Mode (every way)
-        if godModeEnabled then
-            applyGodMode()
-        end
-        
-        -- No Recoil / No Spread (server-side simulation doesn't apply, but we disable client effects)
-        if noRecoilEnabled and char then
-            for _, v in ipairs(char:GetDescendants()) do
-                if v:IsA("Script") and (v.Name:lower():find("recoil") or v.Name:lower():find("spread")) then
-                    v.Disabled = true
+            
+            -- Anti-Sit (skip for 1.5s after respawn)
+            if antiSitEnabled and hum then
+                if now() - (lastSpawnTime or 0) > 1.5 then
+                    hum.Sit = false
                 end
             end
-        end
-    end)
-end)
-
-connections["Heartbeat"] = RunService.Heartbeat:Connect(function()
-    pcall(function()
-        -- God Mode
-        if godModeEnabled then applyGodMode() end
-        
-        -- ESP Updates
-        if espEnabled then updateEsp() end
-        
-        -- Rainbow Chams rotation
-        if rainbowChamsEnabled and chamsEnabled then
-            rainbowHue = (rainbowHue + 1) % 360
-            local color = Color3.fromHSV(rainbowHue / 360, 1, 1)
-            for _, p in ipairs(Players:GetPlayers()) do
-                if p ~= LocalPlayer and p.Character then
-                    local hl = p.Character:FindFirstChild("CapyCham")
-                    if hl and hl:IsA("Highlight") then
-                        hl.FillColor = color
-                    end
-                end
-            end
-        end
-        
-        -- Anti Blind
-        if antiBlindEnabled then
-            if Lighting then
-                for _, v in ipairs(Lighting:GetChildren()) do
-                    if v:IsA("BlurEffect") or v:IsA("ColorCorrectionEffect") then v.Enabled = false end
-                end
-            end
-            local pg = LocalPlayer:FindFirstChild("PlayerGui")
-            if pg then
-                for _, v in ipairs(pg:GetDescendants()) do
-                    if v:IsA("Frame") and v.Visible and (v.BackgroundColor3 == Color3.fromRGB(0,0,0) or v.BackgroundColor3 == Color3.fromRGB(255,255,255)) then
-                        if v.Size.X.Scale >= 1 and v.Size.Y.Scale >= 1 and (v.Name:lower():find("blind") or v.Name:lower():find("fade") or v.Name:lower():find("black")) then
-                            v.Visible = false
+            
+            -- Anti-Freeze (skip for 1s after respawn to let game finish spawning)
+            if antiFreezeEnabled and not flyEnabled and char then
+                local elapsed = now() - (lastSpawnTime or 0)
+                if elapsed > 1 then
+                    for _, part in ipairs(char:GetChildren()) do
+                        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and part.Anchored then
+                            part.Anchored = false
                         end
                     end
                 end
             end
-        end
-        
-        -- Local Character Visual Modifiers (Invisible, headless, limb remover)
-        if localInvisible then
-            local char = LocalPlayer.Character
-            if char then
-                for _, part in ipairs(char:GetDescendants()) do
-                    if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                        part.Transparency = 1
-                        local dec = part:FindFirstChildOfClass("Decal")
-                        if dec then dec.Enabled = false end
+            
+            -- Anti-Ragdoll (skip for 1s after respawn)
+            if antiRagdollEnabled and char then
+                local elapsed = now() - (lastSpawnTime or 0)
+                if elapsed > 1 then
+                    for _, joint in ipairs(char:GetDescendants()) do
+                        if joint:IsA("HingeConstraint") or joint:IsA("BallSocketConstraint") then
+                            joint.Enabled = false
+                        end
                     end
                 end
             end
-        elseif localTransparency > 0 then
-            local char = LocalPlayer.Character
-            if char then
-                for _, part in ipairs(char:GetDescendants()) do
-                    if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-                        part.LocalTransparencyModifier = localTransparency
+            
+            -- No Fall Damage (skip for 1s after respawn)
+            if noFallDmgEnabled and hum then
+                local elapsed = now() - (lastSpawnTime or 0)
+                if elapsed > 1 then
+                    hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+                end
+            end
+            
+            -- No Recoil / No Spread (server-side simulation doesn't apply, but we disable client effects)
+            if noRecoilEnabled and char then
+                for _, v in ipairs(char:GetDescendants()) do
+                    if v:IsA("Script") and (v.Name:lower():find("recoil") or v.Name:lower():find("spread")) then
+                        v.Disabled = true
                     end
                 end
             end
-        end
-        
-        if headlessEnabled then
-            local char = LocalPlayer.Character
-            local head = char and char:FindFirstChild("Head")
-            if head then
-                head.Transparency = 1
-                local face = head:FindFirstChildOfClass("Decal")
-                if face then face.Enabled = false end
-            end
-        end
-        
-        if noLimbsEnabled then
-            local char = LocalPlayer.Character
-            if char then
-                for _, part in ipairs(char:GetChildren()) do
-                    if part:IsA("BasePart") and (part.Name:find("Arm") or part.Name:find("Leg") or part.Name:find("Hand") or part.Name:find("Foot")) then
-                        part.Transparency = 1
-                    end
-                end
-            end
-        end
+        end)
     end)
-end)
+end
+
+if RunService.Heartbeat then
+    connections["Heartbeat"] = RunService.Heartbeat:Connect(function()
+        pcall(function()
+            if not LocalPlayer then return end
+            -- ESP Updates
+            if espEnabled then updateEsp() end
+            
+            -- Rainbow Chams rotation
+            if rainbowChamsEnabled and chamsEnabled then
+                rainbowHue = (rainbowHue + 1) % 360
+                local color = Color3.fromHSV(rainbowHue / 360, 1, 1)
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p ~= LocalPlayer and p.Character then
+                        local hl = p.Character:FindFirstChild("CapyCham")
+                        if hl and hl:IsA("Highlight") then
+                            hl.FillColor = color
+                        end
+                    end
+                end
+            end
+            
+            -- Anti Blind
+            if antiBlindEnabled then
+                if Lighting then
+                    for _, v in ipairs(Lighting:GetChildren()) do
+                        if v:IsA("BlurEffect") or v:IsA("ColorCorrectionEffect") then v.Enabled = false end
+                    end
+                end
+                local pg = LocalPlayer:FindFirstChild("PlayerGui")
+                if pg then
+                    for _, v in ipairs(pg:GetDescendants()) do
+                        if v:IsA("Frame") and v.Visible and (v.BackgroundColor3 == Color3.fromRGB(0,0,0) or v.BackgroundColor3 == Color3.fromRGB(255,255,255)) then
+                            if v.Size.X.Scale >= 1 and v.Size.Y.Scale >= 1 and (v.Name:lower():find("blind") or v.Name:lower():find("fade") or v.Name:lower():find("black")) then
+                                v.Visible = false
+                            end
+                        end
+                    end
+                end
+            end
+            
+            -- Local Character Visual Modifiers
+            if localInvisible then
+                local char = LocalPlayer.Character
+                if char then
+                    for _, part in ipairs(char:GetDescendants()) do
+                        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                            part.Transparency = 1
+                            local dec = part:FindFirstChildOfClass("Decal")
+                            if dec then dec.Enabled = false end
+                        end
+                    end
+                end
+            elseif localTransparency > 0 then
+                local char = LocalPlayer.Character
+                if char then
+                    for _, part in ipairs(char:GetDescendants()) do
+                        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                            part.LocalTransparencyModifier = localTransparency
+                        end
+                    end
+                end
+            end
+            
+            if headlessEnabled then
+                local char = LocalPlayer.Character
+                local head = char and char:FindFirstChild("Head")
+                if head then
+                    head.Transparency = 1
+                    local face = head:FindFirstChildOfClass("Decal")
+                    if face then face.Enabled = false end
+                end
+            end
+            
+            if noLimbsEnabled then
+                local char = LocalPlayer.Character
+                if char then
+                    for _, part in ipairs(char:GetChildren()) do
+                        if part:IsA("BasePart") and (part.Name:find("Arm") or part.Name:find("Leg") or part.Name:find("Hand") or part.Name:find("Foot")) then
+                            part.Transparency = 1
+                        end
+                    end
+                end
+            end
+        end)
+    end)
+end
 
 -- Aimbot Camera lock loop
-connections["AimbotLoop"] = RunService.RenderStepped:Connect(function()
-    pcall(function()
-        if aimbotEnabled and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
-            local target = getAimbotTarget()
-            if target and target.Character then
-                local part = aimHitPart == "Random" and target.Character:FindFirstChildWhichIsA("BasePart") or target.Character:FindFirstChild(aimHitPart)
-                if not part then part = target.Character:FindFirstChild("Head") or target.Character:FindFirstChildWhichIsA("BasePart") end
-                local camera = Workspace.CurrentCamera
-                if part and camera then
-                    camera.CFrame = CFrame.new(camera.CFrame.Position, part.Position)
+if RunService.RenderStepped then
+    connections["AimbotLoop"] = RunService.RenderStepped:Connect(function()
+        pcall(function()
+            if not LocalPlayer or not UserInputService then return end
+            if aimbotEnabled and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+                local target = getAimbotTarget()
+                if target and target.Character then
+                    if teamCheckEnabled then
+                        local targetTeam = target.Team
+                        local localTeam = LocalPlayer.Team
+                        if targetTeam and localTeam and targetTeam == localTeam then return end
+                    end
+                    local part = aimHitPart == "Random" and target.Character:FindFirstChildWhichIsA("BasePart") or target.Character:FindFirstChild(aimHitPart)
+                    if not part then part = target.Character:FindFirstChild("Head") or target.Character:FindFirstChildWhichIsA("BasePart") end
+                    local camera = Workspace and Workspace.CurrentCamera
+                    if part and camera then
+                        local targetPos = part.Position
+                        if aimPrediction > 0 and part.Parent then
+                            local root = part.Parent:FindFirstChild("HumanoidRootPart")
+                            if root then
+                                targetPos = targetPos + root.Velocity * aimPrediction
+                            end
+                        end
+                        camera.CFrame = CFrame.new(camera.CFrame.Position, targetPos)
+                    end
                 end
             end
-        end
+        end)
     end)
-end)
+end
 
 -- Click Teleport (Ctrl + Click) handler
 connections["ClickTPInput"] = UserInputService.InputBegan:Connect(function(input, processed)
@@ -3369,6 +3140,28 @@ connections["ClickDestroyInput"] = UserInputService.InputBegan:Connect(function(
                 if target and not target:IsA("Terrain") then
                     pcall(function() target:Destroy() end)
                     notify("Utilities", "Destroyed object locally.", 2)
+                end
+            end
+        end
+    end)
+end)
+
+-- Grab Player (click target)
+connections["GrabPlayer"] = UserInputService.InputBegan:Connect(function(input, processed)
+    pcall(function()
+        if not processed and _G.capyGrab and input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local mouse = LocalPlayer:GetMouse()
+            local target = mouse.Target
+            if target and target.Parent and target.Parent:FindFirstChildOfClass("Humanoid") and target.Parent ~= LocalPlayer.Character then
+                local root = getRootPart(LocalPlayer)
+                local tr = getRootPart(target.Parent)
+                if root and tr then
+                    tr.CFrame = root.CFrame + Vector3.new(0, 4, 0)
+                    tr.Anchored = true
+                    task.spawn(function()
+                        task.wait(1)
+                        if tr then tr.Anchored = false end
+                    end)
                 end
             end
         end
@@ -3653,9 +3446,11 @@ end)
 
 -- FPS + Ping Monitor
 local fpsFrameCount = 0; local fpsLastTime = now()
-RunService.RenderStepped:Connect(function()
-    fpsFrameCount = fpsFrameCount + 1
-end)
+if RunService.RenderStepped then
+    RunService.RenderStepped:Connect(function()
+        fpsFrameCount = fpsFrameCount + 1
+    end)
+end
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -3715,7 +3510,7 @@ task.spawn(function()
                             local arr = Instance.new("TextLabel")
                             arr.Size = UDim2.new(0,20,0,20); arr.Position = UDim2.new(0,clampPos.X-10,0,clampPos.Y-10)
                             arr.BackgroundTransparency = 1; arr.Font = Enum.Font.GothamBold; arr.TextSize = 14
-                            arr.TextColor3 = Color3.fromRGB(255,50,50); arr.Text = ">"
+                            arr.TextColor3 = Color3.fromRGB(255,50,50); arr.Text = "▲"
                             arr.Rotation = math.deg(math.atan2(dir.Y, dir.X)) + 90
                             arr.ZIndex = 100; arr.Parent = af
                         end
@@ -3843,8 +3638,7 @@ task.spawn(function()
                 local root = getRootPart(LocalPlayer)
                 if not root or not root:FindFirstChild("CapyFlingAV") then
                     if root then
-                pcall(function() setServerOwnership(char) end)
-                flingBodyAV = Instance.new("BodyAngularVelocity")
+                        flingBodyAV = Instance.new("BodyAngularVelocity")
                         flingBodyAV.Name = "CapyFlingAV"
                         flingBodyAV.Parent = root
                         flingBodyAV.AngularVelocity = Vector3.new(0, 99999, 0)
@@ -3893,7 +3687,7 @@ task.spawn(function()
                             end
                         end)
                     end
-                    RunService.Stepped:Wait()
+                    task.wait(0.02)
                     if walkflingEnabled then
                         pcall(function()
                             local root = getRootPart(LocalPlayer)
@@ -3926,130 +3720,6 @@ task.spawn(function()
     end
 end)
 
--- Fling All Players maintenance loop
-task.spawn(function()
-    while true do
-        task.wait(0.3)
-        if flingAllEnabled then
-            pcall(function()
-                for _, p in pairs(Players:GetPlayers()) do
-                    if p ~= LocalPlayer and getRootPart(p) then
-                        if not flingAllBodies[p] then
-                            flingPlayerSingle(p)
-                        else
-                            local bv = flingAllBodies[p]
-                            if not bv or not bv.Parent then
-                                flingAllBodies[p] = nil
-                                flingPlayerSingle(p)
-                            end
-                        end
-                        local char = getCharacter(p)
-                        if char then
-                            for _, v in pairs(char:GetDescendants()) do
-                                if v:IsA("BasePart") then
-                                    v.CanCollide = false
-                                    v.Massless = true
-                                end
-                            end
-                        end
-                    end
-                end
-            end)
-        end
-    end
-end)
-
--- Slider drag handler
-UserInputService.InputChanged:Connect(function(input, proc)
-    if not sliderDragging or proc then return end
-    if input.UserInputType == Enum.UserInputType.MouseMovement then
-        if sliderUpdateFunc then
-            sliderUpdateFunc(getMouseLocation())
-        end
-    end
-end)
-
-UserInputService.InputEnded:Connect(function(input, proc)
-    if proc then return end
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        sliderDragging = false
-        sliderUpdateFunc = nil
-    end
-end)
-
--- Grab/Drag Player: mouse click handler
-UserInputService.InputBegan:Connect(function(input, processed)
-    if processed then return end
-    if input.UserInputType == Enum.UserInputType.MouseButton1 and grabPlayerEnabled then
-        local mouse = LocalPlayer and LocalPlayer:GetMouse()
-        if not mouse then return end
-        local target = mouse.Target
-        local player = getPlayerFromPart(target)
-        if player and player ~= LocalPlayer then
-            if grabbedPlayer == player then
-                releaseGrabbedPlayer()
-            else
-                releaseGrabbedPlayer()
-                grabbedPlayer = player
-                pcall(function()
-                    local root = getRootPart(player)
-                    local hum = getHumanoid(player)
-                    if root and hum then
-                        hum.PlatformStand = true
-                        grabBodyPos = Instance.new("BodyPosition")
-                        grabBodyPos.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-                        grabBodyPos.P = 2000
-                        grabBodyPos.D = 100
-                        grabBodyPos.Position = root.Position
-                        grabBodyPos.Parent = root
-                    end
-                end)
-                notify("Trolling", "Grabbing " .. player.Name .. "! Click again to release.", 2)
-            end
-        elseif grabbedPlayer then
-            releaseGrabbedPlayer()
-            notify("Trolling", "Released player.", 2)
-        end
-    end
-end)
-
--- Grab/Drag Player: position follow loop
-task.spawn(function()
-    local mouse = LocalPlayer and LocalPlayer:GetMouse()
-    while true do
-        task.wait()
-        if grabPlayerEnabled and grabbedPlayer and grabBodyPos and grabBodyPos.Parent then
-            pcall(function()
-                if mouse then
-                    grabBodyPos.Position = mouse.Hit.p + Vector3.new(0, 3, 0)
-                end
-            end)
-        end
-    end
-end)
-
--- Loop Bring All runtime loop
-task.spawn(function()
-    while true do
-        task.wait(0.5)
-        if loopBringAllEnabled then
-            pcall(function()
-                local root = getRootPart(LocalPlayer)
-                if root then
-                    for _, p in pairs(Players:GetPlayers()) do
-                        if p ~= LocalPlayer then
-                            local pr = getRootPart(p)
-                            if pr then
-                                pr.CFrame = root.CFrame + Vector3.new(math.random(-4, 4), 3, math.random(-4, 4))
-                            end
-                        end
-                    end
-                end
-            end)
-        end
-    end
-end)
-
 -- Anti-Fling loop
 task.spawn(function()
     while true do
@@ -4070,6 +3740,158 @@ task.spawn(function()
     end
 end)
 
+-- Loop bring handler
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if loopBringEnabled then
+            local r = getRootPart(LocalPlayer)
+            if r then
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p ~= LocalPlayer then
+                        local pr = getRootPart(p)
+                        if pr then
+                            pcall(function()
+                                pr.CFrame = r.CFrame * CFrame.new(0, 3, 0)
+                            end)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Auto Heal handler
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if autoHealEnabled then
+            pcall(function()
+                local h = getHumanoid(LocalPlayer)
+                if h and h.Health < h.MaxHealth then
+                    local bp = LocalPlayer:FindFirstChildOfClass("Backpack")
+                    if bp then
+                        for _, v in pairs(bp:GetChildren()) do
+                            if v:IsA("Tool") and (v.Name:lower():find("heal") or v.Name:lower():find("med") or v.Name:lower():find("food")) then
+                                v.Parent = LocalPlayer.Character
+                                task.wait(0.1)
+                                break
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+-- Auto Parry handler
+task.spawn(function()
+    while true do
+        task.wait(0.3)
+        if autoParryEnabled then
+            pcall(function()
+                local h = getHumanoid(LocalPlayer)
+                if h and h:GetState() == Enum.HumanoidStateType.FallingDown then
+                    h:ChangeState(Enum.HumanoidStateType.GettingUp)
+                end
+            end)
+        end
+    end
+end)
+
+-- Auto Block handler
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if autoBlockEnabled then
+            pcall(function()
+                local h = getHumanoid(LocalPlayer)
+                if h then
+                    for _, p in ipairs(Players:GetPlayers()) do
+                        if p ~= LocalPlayer and getHumanoid(p) and getHumanoid(p).Health > 0 then
+                            local dist = getRootPart(p) and getRootPart(LocalPlayer) and (getRootPart(p).Position - getRootPart(LocalPlayer).Position).Magnitude
+                            if dist and dist < 10 then
+                                h:ChangeState(Enum.HumanoidStateType.Running)
+                                local char = LocalPlayer.Character
+                                if char then
+                                    local tool = char:FindFirstChildWhichIsA("Tool")
+                                    if tool then
+                                        game:GetService("VirtualInputManager"):SendMouseButtonEvent(0, 0, 0, true, game, 0)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+-- No Gravity
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if noGravityEnabled then
+            pcall(function() Workspace.Gravity = 0 end)
+        elseif not noGravityEnabled then
+            pcall(function() Workspace.Gravity = 196.2 end)
+        end
+    end
+end)
+
+-- Watermark
+if RunService.RenderStepped then
+    connections["Watermark"] = RunService.RenderStepped:Connect(function()
+        pcall(function()
+            if watermarkEnabled then
+                local overlay = getOverlayGui()
+                if not overlay then return end
+                local wm = overlay:FindFirstChild("CapyWatermark")
+                if not wm then
+                    wm = Instance.new("TextLabel")
+                    wm.Name = "CapyWatermark"
+                    wm.Size = UDim2.new(0, 180, 0, 20)
+                    wm.Position = UDim2.new(0, 10, 1, -30)
+                    wm.BackgroundTransparency = 0.3
+                    wm.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
+                    wm.BorderSizePixel = 0
+                    wm.Font = Enum.Font.GothamBold
+                    wm.TextSize = 11
+                    wm.TextColor3 = C.accent
+                    wm.TextXAlignment = Enum.TextXAlignment.Left
+                    wm.ZIndex = 100
+                    wm.Parent = overlay
+                    local c = Instance.new("UICorner")
+                    c.CornerRadius = UDim.new(0, 6)
+                    c.Parent = wm
+                    local s = Instance.new("UIStroke")
+                    s.Color = Color3.fromRGB(40, 40, 55)
+                    s.Thickness = 1
+                    s.Parent = wm
+                end
+                local fps = ""
+                if fpsMonitorEnabled then
+                    local ov = overlay:FindFirstChild("CapyFPS")
+                    if ov then
+                        local lbl = ov:FindFirstChild("Val")
+                        if lbl then fps = lbl.Text end
+                    end
+                end
+                wm.Text = "Capy.gg v3.0  |  " .. fps
+            else
+                local overlay = getOverlayGui()
+                if overlay then
+                    local wm = overlay:FindFirstChild("CapyWatermark")
+                    if wm then wm:Destroy() end
+                end
+            end
+        end)
+    end)
+end
+
 -- Character reload hooks
 connections["LocalCharAdded"] = LocalPlayer.CharacterAdded:Connect(function(char)
     lastSpawnTime = now()
@@ -4077,7 +3899,6 @@ connections["LocalCharAdded"] = LocalPlayer.CharacterAdded:Connect(function(char
         local root = char:WaitForChild("HumanoidRootPart", 5)
         if not root then return end
         task.wait(0.3)
-        if godModeEnabled then applyGodMode() end
         if flyEnabled then enableFly(true) end
         if tracerEspEnabled then
             for _, p in ipairs(Players:GetPlayers()) do
@@ -4110,79 +3931,12 @@ for _, p in ipairs(Players:GetPlayers()) do
     onPlayerAdded(p)
 end
 
-connections["PlayerRemoving"] = Players.PlayerRemoving:Connect(function(p)
-    espMap[p] = nil
-end)
-
--- Noclip loop (Infinite Yield style - single loop, CanCollide only)
-spawn(function()
-    while wait() do
-        if noclipEnabled then
-            applyNoclip()
-        end
-    end
-end)
-
--- Noclip CharacterAdded auto-apply
-LocalPlayer.CharacterAdded:Connect(function(char)
-    char.ChildAdded:Connect(function(child)
-        if noclipEnabled and child:IsA("BasePart") then
-            child.CanCollide = false
-        end
-    end)
-    repeat wait() until char:FindFirstChild("HumanoidRootPart")
-    if noclipEnabled then applyNoclip() end
-end)
-
--- God Mode loop (failsafe)
-spawn(function()
-    local lastSafePos = nil
-    while wait(0.3) do
-        if godModeEnabled then
-            pcall(function()
-                applyGodMode()
-                local char = LocalPlayer and LocalPlayer.Character
-                local hum = char and char:FindFirstChildOfClass("Humanoid")
-                local root = char and char:FindFirstChild("HumanoidRootPart")
-                if root and hum then
-                    -- Record last safe position on ground
-                    if hum.FloorMaterial ~= Enum.Material.Air then
-                        lastSafePos = root.Position
-                    end
-                    -- Anti-Void protection
-                    if root.Position.Y < (workspace.FallenPartsDestroyHeight + 50) then
-                        root.CFrame = CFrame.new(lastSafePos or Vector3.new(0, 50, 0))
-                        root.Velocity = Vector3.new(0,0,0)
-                        notify("Safety", "Void death prevented!", 2)
-                    end
-                end
-                -- Destroy TouchInterests inside killparts/hazard parts to bypass touch damage entirely
-                for _, v in pairs(Workspace:GetDescendants()) do
-                    if v:IsA("TouchTransmitter") or v.Name == "TouchInterest" then
-                        local p = v.Parent
-                        if p and p:IsA("BasePart") then
-                            local n = p.Name:lower()
-                            if n:find("kill") or n:find("lava") or n:find("hurt") or n:find("hazard") or n:find("acid") or n:find("deadly") or n:find("spike") or n:find("toxic") then
-                                v:Destroy()
-                            end
-                        end
-                    end
-                end
-            end)
-        end
-    end
-end)
-
-capyLog("All initialization complete")
-capyLoaded = true
-print("[CAPY.GG] Capy.gg v3.0 successfully loaded with 100+ features.")
-
-end) -- end of main pcall wrapper
-
-if not capyMainOk then
-    local errMsg = "MAIN WRAPPER FAILED: " .. tostring(capyMainErr)
-    print("[CAPY.GG] " .. errMsg)
-    pcall(function()
-        print(table.concat(capyProgress, " -> "))
+if Players then
+    connections["PlayerRemoving"] = Players.PlayerRemoving:Connect(function(p)
+        espMap[p] = nil
     end)
 end
+
+print("[CAPY.GG] Capy.gg v3.0 successfully loaded with 85+ features.")
+
+return true
