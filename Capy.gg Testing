@@ -101,6 +101,12 @@ if not Players or not LocalPlayer then
     return
 end
 
+-- Mobile detection
+local IS_MOBILE = false
+if UserInputService then
+    pcall(function() IS_MOBILE = UserInputService.TouchEnabled end)
+end
+
 -- State variables
 local espMap = {}
 local connections = {}
@@ -1240,7 +1246,7 @@ local function makeDraggable(frame)
             local dragConnection
             dragConnection = UserInputService.InputChanged:Connect(function(changedInput)
                 if changedInput.UserInputType == Enum.UserInputType.MouseMovement or changedInput.UserInputType == Enum.UserInputType.Touch then
-                    local delta = changedInput.Position - dragStart
+                    local delta = Vector2.new(changedInput.Position.X - dragStart.X, changedInput.Position.Y - dragStart.Y)
                     frame.Position = UDim2.new(
                         startPos.X.Scale, startPos.X.Offset + delta.X,
                         startPos.Y.Scale, startPos.Y.Offset + delta.Y
@@ -1313,7 +1319,7 @@ local function buildUI()
     win.BackgroundTransparency = 0.08
     win.BorderSizePixel = 0
     win.Active = true
-    win.ClipsDescendants = true
+    win.ClipsDescendants = false
     win.Parent = sg
     corner(win, 12)
     stroke(win, C.border, 1)
@@ -1399,8 +1405,8 @@ local function buildUI()
     -- Content Frame
     local contentFrame = Instance.new("Frame")
     contentFrame.Name = "ContentFrame"
-    contentFrame.Size = UDim2.new(1, -164, 1, -24)
-    contentFrame.Position = UDim2.new(0, 152, 0, 12)
+    contentFrame.Size = UDim2.new(1, -164, 1, -51)
+    contentFrame.Position = UDim2.new(0, 152, 0, 39)
     contentFrame.BackgroundTransparency = 1
     contentFrame.Parent = win
     
@@ -1957,86 +1963,7 @@ local function buildUI()
         if n then carSpeedValue = n; notify("Movement", "Vehicle target speed: " .. n, 2) end
     end)
     
-    addSectionHeader("Movement", "Fling Features")
-    addToggle("Movement", "Spin Fling (BodyAV)", false, function(v)
-        flingEnabled = v
-        if v then
-            pcall(function()
-                local char = LocalPlayer.Character
-                local root = getRootPart(LocalPlayer)
-                local hum = getHumanoid(LocalPlayer)
-                if not char or not root or not hum then return end
-                setNoclip(true)
-                for _, child in pairs(char:GetDescendants()) do
-                    if child:IsA("BasePart") then
-                        child.CustomPhysicalProperties = PhysicalProperties.new(100, 0.3, 0.5)
-                        child.CanCollide = false
-                        child.Massless = true
-                    end
-                end
-                flingBodyAV = Instance.new("BodyAngularVelocity")
-                flingBodyAV.Name = "CapyFlingAV"
-                flingBodyAV.Parent = root
-                flingBodyAV.AngularVelocity = Vector3.new(0, 99999, 0)
-                flingBodyAV.MaxTorque = Vector3.new(0, math.huge, 0)
-                flingBodyAV.P = math.huge
-                hum.Name = "CapyFlingHum"
-            end)
-        else
-            pcall(function()
-                setNoclip(false)
-                if flingBodyAV and flingBodyAV.Parent then flingBodyAV:Destroy() end
-                flingBodyAV = nil
-                local char = LocalPlayer.Character
-                if char then
-                    for _, child in pairs(char:GetDescendants()) do
-                        if child:IsA("BasePart") then
-                            child.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.3, 0.5)
-                        end
-                    end
-                end
-            end)
-        end
-        notify("Movement", "Spin Fling " .. (v and "ON" or "OFF"), 2)
-    end)
-    addToggle("Movement", "Walk Fling (velocity spam)", false, function(v)
-        walkflingEnabled = v
-        if v then
-            setNoclip(true)
-        else
-            setNoclip(true)
-            task.spawn(function()
-                pcall(function()
-                    local r = getRootPart(LocalPlayer)
-                    if r then
-                        r.Velocity = Vector3.new(0, 0, 0)
-                    end
-                end)
-                task.wait(0.5)
-                setNoclip(false)
-            end)
-        end
-        notify("Movement", "Walk Fling " .. (v and "ON" or "OFF"), 2)
-    end)
-    addToggle("Movement", "Fly Fling (fly + fling)", false, function(v)
-        flyflingEnabled = v
-        if v then
-            enableFly(true)
-            walkflingEnabled = true
-        else
-            enableFly(false)
-            walkflingEnabled = false
-            pcall(function()
-                local r = getRootPart(LocalPlayer)
-                if r then r.Velocity = Vector3.new(0,0,0) end
-            end)
-        end
-        notify("Movement", "Fly Fling " .. (v and "ON" or "OFF"), 2)
-    end)
-    addToggle("Movement", "Anti-Fling Protection", false, function(v)
-        antiflingEnabled = v
-        notify("Movement", "Anti-Fling " .. (v and "ON" or "OFF"), 2)
-    end)
+
     
     -- Combat Tab
     addSectionHeader("Trolling", "Automation")
@@ -2229,6 +2156,87 @@ local function buildUI()
     addToggle("Trolling", "Loop Bring (all players)", false, function(v)
         loopBringEnabled = v
         notify("Trolling", "Loop Bring " .. (v and "ON" or "OFF"), 2)
+    end)
+    
+    addSectionHeader("Trolling", "Fling Features")
+    addToggle("Trolling", "Spin Fling (BodyAV)", false, function(v)
+        flingEnabled = v
+        if v then
+            pcall(function()
+                local char = LocalPlayer.Character
+                local root = getRootPart(LocalPlayer)
+                local hum = getHumanoid(LocalPlayer)
+                if not char or not root or not hum then return end
+                setNoclip(true)
+                for _, child in pairs(char:GetDescendants()) do
+                    if child:IsA("BasePart") then
+                        child.CustomPhysicalProperties = PhysicalProperties.new(100, 0.3, 0.5)
+                        child.CanCollide = false
+                        child.Massless = true
+                    end
+                end
+                flingBodyAV = Instance.new("BodyAngularVelocity")
+                flingBodyAV.Name = "CapyFlingAV"
+                flingBodyAV.Parent = root
+                flingBodyAV.AngularVelocity = Vector3.new(0, 99999, 0)
+                flingBodyAV.MaxTorque = Vector3.new(0, math.huge, 0)
+                flingBodyAV.P = math.huge
+                hum.Name = "CapyFlingHum"
+            end)
+        else
+            pcall(function()
+                setNoclip(false)
+                if flingBodyAV and flingBodyAV.Parent then flingBodyAV:Destroy() end
+                flingBodyAV = nil
+                local char = LocalPlayer.Character
+                if char then
+                    for _, child in pairs(char:GetDescendants()) do
+                        if child:IsA("BasePart") then
+                            child.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.3, 0.5)
+                        end
+                    end
+                end
+            end)
+        end
+        notify("Trolling", "Spin Fling " .. (v and "ON" or "OFF"), 2)
+    end)
+    addToggle("Trolling", "Walk Fling (velocity spam)", false, function(v)
+        walkflingEnabled = v
+        if v then
+            setNoclip(true)
+        else
+            setNoclip(true)
+            task.spawn(function()
+                pcall(function()
+                    local r = getRootPart(LocalPlayer)
+                    if r then
+                        r.Velocity = Vector3.new(0, 0, 0)
+                    end
+                end)
+                task.wait(0.5)
+                setNoclip(false)
+            end)
+        end
+        notify("Trolling", "Walk Fling " .. (v and "ON" or "OFF"), 2)
+    end)
+    addToggle("Trolling", "Fly Fling (fly + fling)", false, function(v)
+        flyflingEnabled = v
+        if v then
+            enableFly(true)
+            walkflingEnabled = true
+        else
+            enableFly(false)
+            walkflingEnabled = false
+            pcall(function()
+                local r = getRootPart(LocalPlayer)
+                if r then r.Velocity = Vector3.new(0,0,0) end
+            end)
+        end
+        notify("Trolling", "Fly Fling " .. (v and "ON" or "OFF"), 2)
+    end)
+    addToggle("Trolling", "Anti-Fling Protection", false, function(v)
+        antiflingEnabled = v
+        notify("Trolling", "Anti-Fling " .. (v and "ON" or "OFF"), 2)
     end)
     
     addSectionHeader("Trolling", "One-Click Actions")
@@ -2575,11 +2583,6 @@ local function buildUI()
     addSectionHeader("Visuals", "Camera & Environment")
     addToggle("Visuals", "Full Bright", false, setFullBright)
     addToggle("Visuals", "Disable Game Fog", false, toggleNoFog)
-    addToggle("Visuals", "Infinite Camera Zoom", false, function(v)
-        local camera = Workspace and Workspace.CurrentCamera
-        if camera then camera.MaxZoomDistance = v and 99999 or 400 end
-        notify("Visuals", "Infinite Zoom " .. (v and "Enabled" or "Disabled"), 2)
-    end)
     addToggle("Visuals", "Anti-Blind Effect removal", false, function(v)
         antiBlindEnabled = v
         notify("Visuals", "Anti-Blind " .. (v and "ON" or "OFF"), 2)
@@ -2707,72 +2710,178 @@ local function buildUI()
     
     selectTab("Main")
     
-    -- Minimize button
-    local minBtn = Instance.new("TextButton")
-    minBtn.Size = UDim2.new(0, 16, 0, 16)
-    minBtn.Position = UDim2.new(1, -48, 0, 12)
-    minBtn.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
-    minBtn.Text = "-"
-    minBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    minBtn.TextScaled = true
-    minBtn.AutoButtonColor = false
-    minBtn.Parent = win
-    corner(minBtn, 8)
-    stroke(minBtn, Color3.fromRGB(25, 150, 70), 1)
+    -- Title bar buttons (direct children of sg, position synced with win)
+    local capyBtnList = {}
+    local function makeCapyBtn(txt, xOff, color, hover, cb)
+        local bSize = IS_MOBILE and 32 or 26
+        local btn = Instance.new("Frame")
+        btn.Size = UDim2.new(0, bSize, 0, bSize)
+        btn.BackgroundColor3 = color
+        btn.BorderSizePixel = 0
+        btn.ZIndex = 100
+        corner(btn, IS_MOBILE and 8 or 7)
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(1, 0, 1, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = txt
+        lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+        lbl.Font = Enum.Font.GothamBold
+        lbl.TextSize = IS_MOBILE and 18 or 16
+        lbl.ZIndex = 100
+        lbl.Parent = btn
+        local wp = win.Position
+        btn.Position = UDim2.new(wp.X.Scale, wp.X.Offset + 560 + xOff, wp.Y.Scale, wp.Y.Offset + 6)
+        btn.Parent = sg
+        table.insert(capyBtnList, {btn=btn, xOff=xOff, cb=cb, _c=color})
+        return btn
+    end
     
-    minBtn.MouseButton1Click:Connect(function()
-        toggleMenu()
+    local bSync = win:GetPropertyChangedSignal("Position"):Connect(function()
+        local wp = win.Position
+        for _, e in ipairs(capyBtnList) do
+            e.btn.Position = UDim2.new(wp.X.Scale, wp.X.Offset + 560 + e.xOff, wp.Y.Scale, wp.Y.Offset + 6)
+        end
     end)
+    connections["BtnSync"] = bSync
     
-    minBtn.MouseEnter:Connect(function()
-        TweenService:Create(minBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(50, 220, 110)}):Play()
-    end)
-    minBtn.MouseLeave:Connect(function()
-        TweenService:Create(minBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(34, 197, 94)}):Play()
-    end)
+    -- Forward declarations so both functions can reference each other
+    local toggleMenu
+    local getOrCreateCircle
     
-    -- Close button
-    local closeBtn = Instance.new("TextButton")
-    closeBtn.Size = UDim2.new(0, 16, 0, 16)
-    closeBtn.Position = UDim2.new(1, -28, 0, 12)
-    closeBtn.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
-    closeBtn.Text = "X"
-    closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    closeBtn.TextScaled = true
-    closeBtn.AutoButtonColor = false
-    closeBtn.Parent = win
-    corner(closeBtn, 8)
-    stroke(closeBtn, Color3.fromRGB(180, 50, 50), 1)
-    
-    closeBtn.MouseButton1Click:Connect(function()
-        _G.CapyCleanUp()
-    end)
-    
-    closeBtn.MouseEnter:Connect(function()
-        TweenService:Create(closeBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(255, 100, 100)}):Play()
-    end)
-    closeBtn.MouseLeave:Connect(function()
-        TweenService:Create(closeBtn, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(239, 68, 68)}):Play()
-    end)
-    
-    -- Show/Hide handler
-    local function toggleMenu()
+    toggleMenu = function()
         menuOpen = not menuOpen
         if menuOpen then
+            local circle = getOrCreateCircle()
+            if circle.Visible then
+                local cp = circle.Position
+                win.Position = UDim2.new(cp.X.Scale, cp.X.Offset + 232, cp.Y.Scale, cp.Y.Offset + 166)
+            end
+            if circle then circle.Visible = false end
             win.Visible = true
-            TweenService:Create(uiScale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
+            win.GroupTransparency = 1
+            uiScale.Scale = 0.3
+            for _, e in ipairs(capyBtnList) do
+                e.btn.Visible = true
+            end
+            TweenService:Create(win, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {GroupTransparency = 0}):Play()
+            TweenService:Create(uiScale, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
         else
-            local t = TweenService:Create(uiScale, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0})
+            local circle = getOrCreateCircle()
+            circle.Position = UDim2.new(win.Position.X.Scale, win.Position.X.Offset + 256, win.Position.Y.Scale, win.Position.Y.Offset + 166)
+            TweenService:Create(win, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {GroupTransparency = 1}):Play()
+            local t = TweenService:Create(uiScale, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0})
             t:Play()
-            t.Completed:Connect(function()
-                if not menuOpen then win.Visible = false end
+            local conn
+            conn = t.Completed:Connect(function()
+                conn:Disconnect()
+                if not menuOpen then
+                    for _, e in ipairs(capyBtnList) do
+                        e.btn.Visible = false
+                    end
+                    win.Visible = false
+                    win.GroupTransparency = 0
+                    uiScale.Scale = 1
+                    circle.Visible = true
+                end
             end)
         end
     end
     
+    -- Minimizer circle (draggable "C" dot shown when window is minimized)
+    local minimizerCircle = nil
+    getOrCreateCircle = function()
+        if minimizerCircle and minimizerCircle.Parent then return minimizerCircle end
+        minimizerCircle = Instance.new("TextButton")
+        minimizerCircle.Name = "CapyMinimizer"
+        minimizerCircle.Size = UDim2.new(0, 48, 0, 48)
+        minimizerCircle.BackgroundColor3 = Color3.fromRGB(34, 197, 94)
+        minimizerCircle.Text = "C"
+        minimizerCircle.TextColor3 = Color3.fromRGB(255, 255, 255)
+        minimizerCircle.Font = Enum.Font.GothamBold
+        minimizerCircle.TextSize = 24
+        minimizerCircle.AutoButtonColor = false
+        minimizerCircle.BorderSizePixel = 0
+        minimizerCircle.ZIndex = 200
+        minimizerCircle.Visible = false
+        minimizerCircle.Parent = sg
+        corner(minimizerCircle, 24)
+        stroke(minimizerCircle, Color3.fromRGB(25, 150, 70), 2)
+        minimizerCircle.Activated:Connect(toggleMenu)
+        minimizerCircle.MouseButton1Click:Connect(toggleMenu)
+        minimizerCircle.InputBegan:Connect(function(input, gpe)
+            if gpe then return end
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                toggleMenu()
+            end
+        end)
+        if not IS_MOBILE then
+            minimizerCircle.MouseEnter:Connect(function()
+                TweenService:Create(minimizerCircle, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(50, 220, 110)}):Play()
+            end)
+            minimizerCircle.MouseLeave:Connect(function()
+                TweenService:Create(minimizerCircle, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(34, 197, 94)}):Play()
+            end)
+        end
+        local dragStart, startPos
+        minimizerCircle.InputBegan:Connect(function(input, proc)
+            if proc then return end
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragStart = input.Position
+                startPos = minimizerCircle.Position
+                local dc = UserInputService.InputChanged:Connect(function(ci)
+                    if ci.UserInputType == Enum.UserInputType.MouseMovement or ci.UserInputType == Enum.UserInputType.Touch then
+                        local delta = ci.Position - dragStart
+                        minimizerCircle.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+                    end
+                end)
+                local ec = UserInputService.InputEnded:Connect(function(ei)
+                    if ei.UserInputType == Enum.UserInputType.MouseButton1 or ei.UserInputType == Enum.UserInputType.Touch then dc:Disconnect(); ec:Disconnect() end
+                end)
+            end
+        end)
+        return minimizerCircle
+    end
+    
+    makeCapyBtn("−", -72, Color3.fromRGB(34, 197, 94), Color3.fromRGB(50, 220, 110), toggleMenu)
+    makeCapyBtn("X", -38, Color3.fromRGB(239, 68, 68), Color3.fromRGB(255, 100, 100), function()
+        local t = TweenService:Create(uiScale, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Scale = 0})
+        local g = TweenService:Create(win, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {GroupTransparency = 1})
+        t:Play()
+        g:Play()
+        local conn
+        conn = g.Completed:Connect(function()
+            conn:Disconnect()
+            _G.CapyCleanUp()
+        end)
+    end)
+    
     connections["ToggleMenu"] = UserInputService.InputBegan:Connect(function(input, processed)
-        if not processed and input.KeyCode == minimizeKey then
+        if input.KeyCode == minimizeKey then
             toggleMenu()
+        end
+    end)
+    
+    connections["CapyBtnClicks"] = UserInputService.InputBegan:Connect(function(input)
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        local mp = (input.UserInputType == Enum.UserInputType.Touch and input.Position) or UserInputService:GetMouseLocation()
+        if not mp then return end
+        local wa = win.AbsolutePosition
+        if not wa then return end
+        local bSize = IS_MOBILE and 32 or 26
+        for _, e in ipairs(capyBtnList) do
+            if e.btn and e.btn.Visible then
+                local bx = wa.X + 560 + e.xOff
+                local by = wa.Y + 6
+                if mp.X >= bx and mp.X <= bx + bSize and mp.Y >= by and mp.Y <= by + bSize then
+                    e.btn.BackgroundColor3 = Color3.new(1, 1, 1)
+                    task.spawn(function()
+                        task.wait(0.15)
+                        if e.btn and e.btn.Parent then e.btn.BackgroundColor3 = e._c end
+                    end)
+                    pcall(e.cb)
+                    return
+                end
+            end
         end
     end)
     
