@@ -101,6 +101,7 @@ end
 -- State variables
 local espMap = {}
 local connections = {}
+local playerConnections = {}
 local noclipEnabled = false
 local flyEnabled = false
 local flySpeed = 100
@@ -368,30 +369,13 @@ local function notify(title, text, duration)
     toast.Parent = container
     
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 8)
+    corner.CornerRadius = UDim.new(0, 12)
     corner.Parent = toast
     
     local stroke = Instance.new("UIStroke")
     stroke.Color = C.border
     stroke.Thickness = 1
     stroke.Parent = toast
-    
-    local accent = Instance.new("Frame")
-    accent.Size = UDim2.new(0, 4, 1, 0)
-    accent.BackgroundColor3 = C.accent
-    accent.BorderSizePixel = 0
-    accent.Parent = toast
-    
-    local accentCorner = Instance.new("UICorner")
-    accentCorner.CornerRadius = UDim.new(0, 8)
-    accentCorner.Parent = accent
-    
-    local accentMask = Instance.new("Frame")
-    accentMask.Size = UDim2.new(0, 4, 1, 0)
-    accentMask.Position = UDim2.new(0, 2, 0, 0)
-    accentMask.BackgroundColor3 = C.accent
-    accentMask.BorderSizePixel = 0
-    accentMask.Parent = accent
     
     local titleLbl = Instance.new("TextLabel")
     titleLbl.Size = UDim2.new(1, -20, 0, 20)
@@ -628,6 +612,14 @@ local function removeBox(p)
     end
 end
 
+local function forceCleanLocalBox()
+    local char = LocalPlayer.Character
+    if char then
+        local box = char:FindFirstChild("CapyBox")
+        if box then pcall(function() box:Destroy() end) end
+    end
+end
+
 local function toggleBoxEsp(e)
     boxEspEnabled = e
     if e then
@@ -638,6 +630,7 @@ local function toggleBoxEsp(e)
         for _, p in ipairs(Players:GetPlayers()) do
             removeBox(p)
         end
+        forceCleanLocalBox()
         sweepVisualsMap()
     end
 end
@@ -812,6 +805,7 @@ local function cleanupVisuals()
     localInvisible = false
     headlessEnabled = false
     noLimbsEnabled = false
+    forceCleanLocalBox()
     
     local camera = Workspace and Workspace.CurrentCamera
     if camera then
@@ -2220,7 +2214,7 @@ local function buildUI()
     end)
     addToggle("Trolling", "Loop Bring (all players)", false, function(v)
         loopBringEnabled = v
-        notify("Trolling", "Loop Bring " .. (v and "ON" or "OFF"), 2)
+        notify("Trolling", "Loop Bring " .. (v and "ON" or "OFF") .. " (Local Visual)", 2)
     end)
     
     addSectionHeader("Trolling", "Fling Features")
@@ -2320,7 +2314,7 @@ local function buildUI()
                 end
             end
         end
-        notify("Trolling", "Brought " .. count .. " players", 2)
+        notify("Trolling", "Brought " .. count .. " players (Local Visual)", 2)
     end)
     addButton("Trolling", "Send All (launch away)", function()
         local r = getRootPart(LocalPlayer)
@@ -2980,6 +2974,13 @@ _G.CapyCleanUp = function()
     walkflingEnabled = false
     flyflingEnabled = false
     antiflingEnabled = false
+    teamCheckEnabled = false
+    espTeamCheck = false
+    watermarkEnabled = false
+    noGravityEnabled = false
+    autoHealEnabled = false
+    autoParryEnabled = false
+    autoBlockEnabled = false
     
     _G.capyFlingAllActive = false
     _G.capyGrab = false
@@ -3028,6 +3029,11 @@ _G.CapyCleanUp = function()
         end
     end
     
+    for p, con in pairs(playerConnections) do
+        pcall(function() con:Disconnect() end)
+    end
+    playerConnections = {}
+    
     debugLog("Universal Admin uninstalled successfully.")
 end
 
@@ -3061,13 +3067,13 @@ if RunService.Heartbeat then
                 end
             end
             
-            -- Enforce WalkSpeed
-            if walkspeedEnabled and hum then
+            -- Enforce WalkSpeed (delta-check to reduce rubber-banding)
+            if walkspeedEnabled and hum and hum.WalkSpeed ~= targetWalkspeed then
                 hum.WalkSpeed = targetWalkspeed
             end
             
-            -- Enforce JumpPower
-            if jumppowerEnabled and hum then
+            -- Enforce JumpPower (delta-check to reduce rubber-banding)
+            if jumppowerEnabled and hum and hum.JumpPower ~= targetJumppower then
                 hum.JumpPower = targetJumppower
                 hum.UseJumpPower = true
             end
@@ -3387,14 +3393,14 @@ end)
 task.spawn(function()
     while true do
         task.wait(0.05)
-        if bhopEnabled then
-            pcall(function()
+        pcall(function()
+            if bhopEnabled then
                 local h = getHumanoid(LocalPlayer)
                 if h and h:GetState() == Enum.HumanoidStateType.Running and h.FloorMaterial ~= Enum.Material.Air then
                     h:ChangeState(Enum.HumanoidStateType.Jumping)
                 end
-            end)
-        end
+            end
+        end)
     end
 end)
 
@@ -3403,8 +3409,8 @@ local waterWalkBP = nil
 task.spawn(function()
     while true do
         task.wait(0.1)
-        if waterWalkEnabled then
-            pcall(function()
+        pcall(function()
+            if waterWalkEnabled then
                 local r = getRootPart(LocalPlayer)
                 if r then
                     if not waterWalkBP or not waterWalkBP.Parent then
@@ -3415,10 +3421,10 @@ task.spawn(function()
                     end
                     waterWalkBP.Position = r.Position + Vector3.new(0, -2, 0)
                 end
-            end)
-        else
-            if waterWalkBP then pcall(function() waterWalkBP:Destroy() end); waterWalkBP = nil end
-        end
+            else
+                if waterWalkBP then waterWalkBP:Destroy(); waterWalkBP = nil end
+            end
+        end)
     end
 end)
 
@@ -3426,15 +3432,15 @@ end)
 task.spawn(function()
     while true do
         task.wait(0.3)
-        if antiVoidEnabled then
-            pcall(function()
+        pcall(function()
+            if antiVoidEnabled then
                 local r = getRootPart(LocalPlayer)
                 if r and r.Position.Y < -50 then
                     r.CFrame = CFrame.new(r.Position + Vector3.new(0, 100, 0))
                     notify("Movement", "Saved from void!", 2)
                 end
-            end)
-        end
+            end
+        end)
     end
 end)
 
@@ -3443,9 +3449,8 @@ local triggerbotClicking = false
 task.spawn(function()
     while true do
         task.wait(0.05)
-        if triggerbotEnabled then
-            local shouldClick = false
-            pcall(function()
+        pcall(function()
+            if triggerbotEnabled then
                 local cam = Workspace and Workspace.CurrentCamera
                 if not cam then return end
                 local ray = cam:ViewportPointToRay(0.5, 0.5)
@@ -3461,17 +3466,14 @@ task.spawn(function()
                 if hit and hit.Parent then
                     local h = hit.Parent:FindFirstChildOfClass("Humanoid")
                     if h and type(h.Health) == "number" and h.Health > 0 and hit.Parent ~= getCharacter(LocalPlayer) then
-                        shouldClick = true
+                        local vim = game:GetService("VirtualInputManager")
+                        vim:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+                        task.wait(0.02)
+                        vim:SendMouseButtonEvent(0, 0, 0, false, game, 0)
                     end
                 end
-            end)
-            if shouldClick then
-                local vim = game:GetService("VirtualInputManager")
-                vim:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-                task.wait(0.02)
-                vim:SendMouseButtonEvent(0, 0, 0, false, game, 0)
             end
-        end
+        end)
     end
 end)
 
@@ -4057,7 +4059,7 @@ if RunService.RenderStepped then
     end)
 end
 
--- Character reload hooks
+-- Character reload hooks — re-applies all active features after respawn
 connections["LocalCharAdded"] = LocalPlayer.CharacterAdded:Connect(function(char)
     lastSpawnTime = now()
     task.defer(function()
@@ -4065,10 +4067,23 @@ connections["LocalCharAdded"] = LocalPlayer.CharacterAdded:Connect(function(char
         if not root then return end
         task.wait(0.3)
         if flyEnabled then enableFly(true) end
+        if espEnabled then
+            for _, p in ipairs(Players:GetPlayers()) do attachEspToPlayer(p) end
+        end
+        if boxEspEnabled then
+            forceCleanLocalBox()
+            for _, p in ipairs(Players:GetPlayers()) do attachBoxToPlayer(p) end
+        end
         if tracerEspEnabled then
-            for _, p in ipairs(Players:GetPlayers()) do
-                attachTracerToPlayer(p)
+            local localRoot = getRootPart(LocalPlayer)
+            if localRoot then
+                local oldAttach = localRoot:FindFirstChild("CapyTracerLocalAttach")
+                if oldAttach then oldAttach:Destroy() end
             end
+            for _, p in ipairs(Players:GetPlayers()) do attachTracerToPlayer(p) end
+        end
+        if chamsEnabled then
+            for _, p in ipairs(Players:GetPlayers()) do applyCham(p) end
         end
     end)
 end)
@@ -4083,9 +4098,10 @@ local function onCharacterAdded(p, char)
 end
 
 local function onPlayerAdded(p)
-    p.CharacterAdded:Connect(function(char)
+    local con = p.CharacterAdded:Connect(function(char)
         onCharacterAdded(p, char)
     end)
+    playerConnections[p] = con
     if p.Character then
         onCharacterAdded(p, p.Character)
     end
